@@ -454,37 +454,6 @@ function polygonPerimeterM(points){
   return s;
 }
 
-$("exportBtn").onclick=()=>{
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download=(data.name||"property").replace(/[^a-z0-9_-]+/gi,"_")+".json";
-  a.click();
-  URL.revokeObjectURL(a.href);
-};
-
-$("importInput").onchange=e=>{
-  const f=e.target.files[0];
-  if(!f)return;
-
-  const r=new FileReader();
-
-  r.onload=()=>{
-    try{
-      const imported=JSON.parse(r.result);
-      if(!imported.waypoints||!imported.boundary)throw 0;
-      data=imported;
-      save();
-      renderWaypoints();
-      renderBoundary();
-    }catch{
-      alert("That file is not a valid PropertyGPS file.");
-    }
-  };
-
-  r.readAsText(f);
-  e.target.value="";
-};
 
 updateStats();
 renderWaypoints();

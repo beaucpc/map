@@ -37,3 +37,9 @@ main{position:relative;flex:1;min-height:0}
 .leaflet-control-attribution{font-size:9px}
 .leaflet-popup-content{font-size:14px}
 @media(min-width:800px){.bottomPanel{max-width:620px;margin:0 auto;width:100%;border-radius:14px 14px 0 0}.topbar{padding-left:24px;padding-right:24px}}
+
+.removeWaypointBtn{
+  min-height:48px!important;
+  font-size:13px!important;
+  font-weight:900!important;
+}
