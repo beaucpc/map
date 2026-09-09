@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#111827">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PropertyGPS">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+  <title>PropertyGPS</title>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="brand">PropertyGPS</div>
+      <div id="status" class="status">GPS not started</div>
+    </div>
+    <button id="locateBtn" class="iconBtn" title="Centre on me">◎</button>
+  </header>
+
+  <main>
+    <div id="map"></div>
+    <div id="accuracy" class="mapBadge">Accuracy: —</div>
+  </main>
+
+  <section class="bottomPanel">
+    <div class="propertyRow">
+      <input id="propertyName" value="My Property" aria-label="Property name">
+      <button id="saveNameBtn" class="smallBtn">Save</button>
+    </div>
+
+    <div class="stats">
+      <div><span>Waypoints</span><strong id="waypointCount">0</strong></div>
+      <div><span>Boundary</span><strong id="boundaryArea">0 ha</strong></div>
+      <div><span>Perimeter</span><strong id="boundaryPerimeter">0 km</strong></div>
+    </div>
+
+    <div class="actions">
+      <button id="markBtn" class="primary">📍 MARK HERE</button>
+      <button id="boundaryBtn" class="secondary">⬡ BOUNDARY</button>
+    </div>
+    <div class="actions secondaryActions">
+      <button id="clearBoundaryBtn" class="danger">Clear Boundary</button>
+      <button id="exportBtn" class="secondary">Export JSON</button>
+      <label class="secondary fileLabel">Import JSON<input id="importInput" type="file" accept=".json"></label>
+    </div>
+    <div id="hint" class="hint">Tap MARK HERE to save your current GPS position.</div>
+  </section>
+
+  <div id="waypointDialog" class="dialog hidden">
+    <div class="dialogCard">
+      <h2>Name waypoint</h2>
+      <input id="waypointName" placeholder="e.g. Gate 1, Dam, Shed" autofocus>
+      <div class="dialogActions">
+        <button id="cancelWaypoint" class="secondary">Cancel</button>
+        <button id="saveWaypoint" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
