@@ -25,6 +25,19 @@
   <main>
     <div id="map"></div>
     <div id="accuracy" class="mapBadge">Accuracy: —</div>
+    <div class="mapTools">
+      <button id="mapTypeBtn" class="mapToolBtn">🗺️ SATELLITE</button>
+      <button id="compassBtn" class="mapToolBtn">🧭 COMPASS</button>
+    </div>
+    <div id="navigationPanel" class="navigationPanel hidden">
+      <div class="navTitle">NAVIGATING TO <span id="navTarget">Waypoint</span></div>
+      <div class="navGrid">
+        <div><span>Distance</span><strong id="navDistance">—</strong></div>
+        <div><span>Bearing</span><strong id="navBearing">—</strong></div>
+        <div><span>Direction</span><strong id="navDirection">Waiting for heading…</strong></div>
+      </div>
+      <button id="stopNavigationBtn" class="navStop">STOP NAVIGATION</button>
+    </div>
   </main>
 
   <section class="bottomPanel">
@@ -49,19 +62,29 @@
       <button id="clearBoundaryBtn" class="danger">Clear Boundary</button>
     </div>
 
-    <div id="hint" class="hint">
-      GPS runs continuously. MARK HERE averages fixes for 8 seconds for a more stable waypoint.
-    </div>
+    <div id="hint" class="hint">GPS runs continuously. MARK HERE averages fixes for 3 seconds for a more stable waypoint.</div>
   </section>
 
   <div id="waypointDialog" class="dialog hidden">
     <div class="dialogCard">
       <h2>Name waypoint</h2>
       <div id="captureInfo" class="captureInfo"></div>
-      <input id="waypointName" placeholder="e.g. Gate 1, Dam, Shed" autofocus>
+      <input id="waypointName" placeholder="e.g. Gate 1, Dam, Shed" autocomplete="off">
       <div class="dialogActions">
         <button id="cancelWaypoint" class="secondary">Cancel</button>
         <button id="saveWaypoint" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="boundaryDialog" class="dialog hidden">
+    <div class="dialogCard">
+      <h2>Name boundary</h2>
+      <div class="captureInfo">Give this boundary a name. The name will be displayed along its edges on the map.</div>
+      <input id="boundaryName" placeholder="e.g. Main Paddock, North Block" autocomplete="off">
+      <div class="dialogActions">
+        <button id="cancelBoundary" class="secondary">Cancel</button>
+        <button id="saveBoundary" class="primary">Save Boundary</button>
       </div>
     </div>
   </div>

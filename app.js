@@ -1,464 +1,75 @@
 const STORAGE_KEY = "propertygps-v1";
-let data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") || {
-  name:"My Property", waypoints:[], boundary:[]
-};
+let data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") || {name:"My Property", waypoints:[], boundary:[], boundaryName:""};
+if(!Array.isArray(data.waypoints)) data.waypoints=[];
+if(!Array.isArray(data.boundary)) data.boundary=[];
 
-let currentPosition = null;
-let userMarker = null;
-let accuracyCircle = null;
-let boundaryLine = null;
-let boundaryPolygon = null;
-let boundaryMarkers = [];
-let waypointMarkers = [];
-let pendingWaypoint = null;
-let boundaryMode = false;
+let currentPosition=null, userMarker=null, accuracyCircle=null, headingMarker=null;
+let boundaryLine=null,boundaryPolygon=null,boundaryMarkers=[],boundaryEdgeLabels=[],waypointMarkers=[];
+let pendingWaypoint=null,boundaryMode=false,pendingBoundaryName="";
+let gpsWatchId=null,latestRawPosition=null,gpsSamples=[],captureTimer=null,captureActive=false;
+let currentHeading=null,headingSource="",headingPermissionAsked=false;
+let navigationTarget=null,navigationLine=null,animationFrame=null,lastRenderedLL=null,targetRenderedLL=null;
+const CAPTURE_MS=3000, MAX_SAMPLE_AGE_MS=12000;
 
-// GPS state
-let gpsWatchId = null;
-let latestRawPosition = null;
-let gpsSamples = [];
-let captureTimer = null;
-let captureActive = false;
-const CAPTURE_MS = 8000;
-const MAX_SAMPLE_AGE_MS = 15000;
-
-const map = L.map("map", { zoomControl:false, preferCanvas:true }).setView([-37.8136,144.9631], 10);
+const map=L.map("map",{zoomControl:false,preferCanvas:true}).setView([-37.8136,144.9631],10);
 L.control.zoom({position:"bottomright"}).addTo(map);
-
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap contributors'
-}).addTo(map);
-
-const $ = id => document.getElementById(id);
-
-function save(){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  updateStats();
-}
-
-function updateStats(){
-  $("propertyName").value = data.name;
-  $("waypointCount").textContent = data.waypoints.length;
-  const area = polygonAreaM2(data.boundary);
-  const perimeter = polygonPerimeterM(data.boundary);
-  $("boundaryArea").textContent = `${(area/10000).toFixed(2)} ha`;
-  $("boundaryPerimeter").textContent = `${(perimeter/1000).toFixed(2)} km`;
-}
-
-function esc(s){
-  return String(s).replace(/[&<>"']/g,c=>({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-  }[c]));
-}
-
-function setGPSStatus(text){
-  $("status").textContent = text;
-}
-
-function updateGPSDisplay(pos){
-  const accuracy = Number(pos.accuracy) || 9999;
-  $("accuracy").textContent = `Accuracy: ±${Math.round(accuracy)} m`;
-
-  if(captureActive){
-    $("hint").textContent =
-      `Collecting GPS fixes… ${gpsSamples.length} samples • best ±${Math.round(getBestAccuracy())} m`;
-  }
-}
-
-function getBestAccuracy(){
-  if(!gpsSamples.length) return latestRawPosition?.accuracy || 9999;
-  return Math.min(...gpsSamples.map(p => Number(p.accuracy) || 9999));
-}
-
-function addGPSSample(coords){
-  const now = Date.now();
-  const sample = {
-    latitude: Number(coords.latitude),
-    longitude: Number(coords.longitude),
-    accuracy: Number(coords.accuracy) || 9999,
-    timestamp: now
-  };
-
-  if(!Number.isFinite(sample.latitude) || !Number.isFinite(sample.longitude)) return;
-
-  // Ignore obviously stale fixes.
-  if(coords.timestamp && now - coords.timestamp > MAX_SAMPLE_AGE_MS) return;
-
-  // Keep the rolling set small. The best recent fixes are more useful than old ones.
-  gpsSamples.push(sample);
-  if(gpsSamples.length > 30) gpsSamples.shift();
-
-  updateGPSDisplay(sample);
-}
-
-function updateMapPosition(pos){
-  const ll=[pos.latitude,pos.longitude];
-
-  if(!userMarker){
-    userMarker=L.circleMarker(ll,{
-      radius:8,color:"#fff",weight:3,fillColor:"#3b82f6",fillOpacity:1
-    }).addTo(map);
-  }else{
-    userMarker.setLatLng(ll);
-  }
-
-  if(!accuracyCircle){
-    accuracyCircle=L.circle(ll,{
-      radius:pos.accuracy,color:"#3b82f6",weight:1,fillOpacity:.08
-    }).addTo(map);
-  }else{
-    accuracyCircle.setLatLng(ll);
-    accuracyCircle.setRadius(pos.accuracy);
-  }
-}
-
-function handleGPSPosition(pos){
-  latestRawPosition = pos.coords;
-
-  // Use the live fix for the moving blue dot.
-  currentPosition = pos.coords;
-  updateMapPosition(pos.coords);
-
-  const accuracy = Number(pos.coords.accuracy) || 9999;
-  setGPSStatus(`GPS ±${Math.round(accuracy)} m`);
-  updateGPSDisplay(pos.coords);
-
-  // Store fixes continuously so MARK HERE can use several readings rather than one.
-  addGPSSample(pos.coords);
-}
-
-function startGPS(){
-  if(!navigator.geolocation){
-    setGPSStatus("GPS unavailable");
-    return;
-  }
-
-  if(gpsWatchId !== null) navigator.geolocation.clearWatch(gpsWatchId);
-
-  gpsWatchId = navigator.geolocation.watchPosition(
-    handleGPSPosition,
-    err=>{
-      if(err.code===1){
-        setGPSStatus("Location permission denied");
-      }else{
-        setGPSStatus("Waiting for GPS…");
-      }
-    },
-    {
-      enableHighAccuracy:true,
-      maximumAge:0,
-      timeout:10000
-    }
-  );
-}
-
+const streetLayer=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"});
+const topoLayer=L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{maxZoom:17,attribution:"Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap"});
+const satelliteLayer=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Tiles &copy; Esri"});
+topoLayer.addTo(map);
+let mapMode="topo";
+const $=id=>document.getElementById(id);
+function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify(data));updateStats()}
+function updateStats(){$("propertyName").value=data.name;$('waypointCount').textContent=data.waypoints.length;const area=polygonAreaM2(data.boundary),perimeter=polygonPerimeterM(data.boundary);$('boundaryArea').textContent=`${(area/10000).toFixed(2)} ha`;$('boundaryPerimeter').textContent=`${(perimeter/1000).toFixed(2)} km`}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+function setGPSStatus(t){$('status').textContent=t}
+function getBestAccuracy(){return gpsSamples.length ? Math.min(...gpsSamples.map(p=>Number(p.accuracy)||9999)) : (latestRawPosition?.accuracy || 9999)}
+function updateGPSDisplay(pos){const a=Number(pos.accuracy)||9999;$('accuracy').textContent=`Accuracy: ±${Math.round(a)} m`;if(captureActive)$('hint').textContent=`Collecting GPS fixes… ${gpsSamples.length} samples • best ±${Math.round(getBestAccuracy())} m`}
+function addGPSSample(coords){const now=Date.now();if(coords.timestamp&&now-coords.timestamp>MAX_SAMPLE_AGE_MS)return;const p={latitude:Number(coords.latitude),longitude:Number(coords.longitude),accuracy:Number(coords.accuracy)||9999,timestamp:now};if(!Number.isFinite(p.latitude)||!Number.isFinite(p.longitude))return;gpsSamples.push(p);if(gpsSamples.length>40)gpsSamples.shift();updateGPSDisplay(p)}
+function smoothMoveMarker(marker,from,to,duration=700){if(!from){marker.setLatLng(to);return}const start=performance.now();const step=now=>{const t=Math.min(1,(now-start)/duration),e=t*(2-t);marker.setLatLng([from[0]+(to[0]-from[0])*e,from[1]+(to[1]-from[1])*e]);if(t<1)requestAnimationFrame(step)};requestAnimationFrame(step)}
+function updateMapPosition(pos){const ll=[pos.latitude,pos.longitude];if(!userMarker){userMarker=L.circleMarker(ll,{radius:8,color:"#fff",weight:3,fillColor:"#3b82f6",fillOpacity:1}).addTo(map);lastRenderedLL=ll}else{smoothMoveMarker(userMarker,lastRenderedLL,ll,700);lastRenderedLL=ll}if(!accuracyCircle)accuracyCircle=L.circle(ll,{radius:pos.accuracy,color:"#3b82f6",weight:1,fillOpacity:.08}).addTo(map);else smoothMoveMarker(accuracyCircle,lastRenderedLL,ll,700),accuracyCircle.setRadius(pos.accuracy);updateHeadingMarker(ll)}
+function updateHeadingMarker(ll){if(currentHeading===null)return;const html=`<div class="headingArrow" style="transform:rotate(${currentHeading}deg)"></div><div class="headingDot"></div>`;if(!headingMarker)headingMarker=L.marker(ll,{icon:L.divIcon({className:"headingMarker",html,iconSize:[30,40],iconAnchor:[15,34]}),interactive:false,zIndexOffset:1000}).addTo(map);else{headingMarker.setLatLng(ll);headingMarker.setIcon(L.divIcon({className:"headingMarker",html,iconSize:[30,40],iconAnchor:[15,34]}))}}
+function handleGPSPosition(pos){latestRawPosition=pos.coords;currentPosition=pos.coords;updateMapPosition(pos.coords);const a=Number(pos.coords.accuracy)||9999;setGPSStatus(`GPS ±${Math.round(a)} m`);updateGPSDisplay(pos.coords);addGPSSample(pos.coords);updateNavigation()}
+function startGPS(){if(!navigator.geolocation){setGPSStatus("GPS unavailable");return}if(gpsWatchId!==null)navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=navigator.geolocation.watchPosition(handleGPSPosition,err=>{setGPSStatus(err.code===1?"Location permission denied":"Waiting for GPS…")},{enableHighAccuracy:true,maximumAge:0,timeout:10000})}
 startGPS();
+function centreOnUser(){if(!currentPosition){alert("Waiting for a GPS position.");return}map.setView([currentPosition.latitude,currentPosition.longitude],Math.max(map.getZoom(),17))}$('locateBtn').onclick=centreOnUser;
 
-function centreOnUser(){
-  if(!currentPosition){
-    alert("Waiting for a GPS position.");
-    return;
-  }
-  map.setView(
-    [currentPosition.latitude,currentPosition.longitude],
-    Math.max(map.getZoom(),17)
-  );
-}
+async function requestCompass(){if(typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function"){try{const p=await DeviceOrientationEvent.requestPermission();if(p!=="granted"){alert("Compass permission was not granted.");return}}catch(e){return}}window.addEventListener("deviceorientationabsolute",handleOrientation,true);window.addEventListener("deviceorientation",handleOrientation,true);headingPermissionAsked=true;$('compassBtn').textContent="🧭 COMPASS ON";$('hint').textContent="Compass active. Keep the phone upright for the most reliable heading."}
+function handleOrientation(e){let h=null;if(typeof e.webkitCompassHeading==="number"&&e.webkitCompassHeading>=0)h=e.webkitCompassHeading;else if(typeof e.alpha==="number")h=(360-e.alpha)%360; if(h===null)return;currentHeading=h;headingSource=e.webkitCompassHeading!==undefined?"compass":"device orientation";if(currentPosition)updateHeadingMarker([currentPosition.latitude,currentPosition.longitude]);updateNavigation()}
+$('compassBtn').onclick=requestCompass;
 
-$("locateBtn").onclick=centreOnUser;
+$('mapTypeBtn').onclick=()=>{if(mapMode==="topo"){map.removeLayer(topoLayer);satelliteLayer.addTo(map);mapMode="satellite";$('mapTypeBtn').textContent="🗻 TOPOGRAPHY"}else{map.removeLayer(satelliteLayer);topoLayer.addTo(map);mapMode="topo";$('mapTypeBtn').textContent="🛰️ SATELLITE"}};
 
-// Calculate a weighted average of the captured fixes.
-// More accurate fixes receive more weight, while a few poor fixes have less influence.
-function averageGPS(samples){
-  if(!samples.length) return null;
+function averageGPS(samples){if(!samples.length)return null;let ws=0,lat=0,lng=0;samples.forEach(p=>{const a=Math.max(1,p.accuracy||9999),w=1/(a*a);ws+=w;lat+=p.latitude*w;lng+=p.longitude*w});lat/=ws;lng/=ws;let sq=0;samples.forEach(p=>{const d=dist({lat,lng},{lat:p.latitude,lng:p.longitude});const w=1/(Math.max(1,p.accuracy||9999)**2);sq+=d*d*w});const spread=Math.sqrt(sq/ws),bestAccuracy=Math.min(...samples.map(p=>p.accuracy||9999));return{lat,lng,accuracy:Math.max(bestAccuracy,spread),bestAccuracy,spread}}
+function finishWaypointCapture(){captureActive=false;if(captureTimer){clearTimeout(captureTimer);captureTimer=null}const recent=gpsSamples.filter(p=>Date.now()-p.timestamp<=MAX_SAMPLE_AGE_MS);if(!recent.length){alert("No usable GPS fixes were received.");return}const good=recent.filter(p=>p.accuracy<=30),samples=good.length>=2?good:recent.slice(-15),r=averageGPS(samples);if(!r)return;pendingWaypoint={lat:r.lat,lng:r.lng,accuracy:r.accuracy,bestAccuracy:r.bestAccuracy,sampleCount:samples.length};$('waypointName').value="";$('captureInfo').textContent=`Averaged ${samples.length} fixes. Best ±${Math.round(r.bestAccuracy)} m; estimated spread ±${Math.round(r.spread)} m.`;$('waypointDialog').classList.remove('hidden');$('hint').textContent="GPS capture complete. Name and save the waypoint.";setTimeout(()=>$('waypointName').focus(),50)}
+function captureWaypoint(){if(!currentPosition){alert("Waiting for GPS. Make sure Location Services and Precise Location are enabled.");return}if(captureActive)return;captureActive=true;gpsSamples=[];$('waypointDialog').classList.add('hidden');$('hint').textContent="Collecting GPS fixes for 3 seconds…";setGPSStatus("GPS capture in progress…");addGPSSample(currentPosition);captureTimer=setTimeout(finishWaypointCapture,CAPTURE_MS)}
+$('markBtn').onclick=captureWaypoint;
+$('cancelWaypoint').onclick=()=>{pendingWaypoint=null;captureActive=false;if(captureTimer)clearTimeout(captureTimer);captureTimer=null;$('waypointDialog').classList.add('hidden');$('hint').textContent="Tap MARK HERE to save your current GPS position."};
+$('saveWaypoint').onclick=()=>{if(!pendingWaypoint)return;data.waypoints.push({id:crypto.randomUUID(),name:$('waypointName').value.trim()||"Waypoint",lat:pendingWaypoint.lat,lng:pendingWaypoint.lng,accuracy:pendingWaypoint.accuracy,bestAccuracy:pendingWaypoint.bestAccuracy,sampleCount:pendingWaypoint.sampleCount,created:new Date().toISOString()});pendingWaypoint=null;$('waypointDialog').classList.add('hidden');save();renderWaypoints()};
 
-  let weightSum=0, latSum=0, lngSum=0;
+$('boundaryBtn').onclick=()=>{if(boundaryMode){boundaryMode=false;$('boundaryBtn').textContent="⬡ BOUNDARY";map.getContainer().style.cursor="";if(data.boundary.length>=3){$('boundaryName').value=data.boundaryName||"";$('boundaryDialog').classList.remove('hidden');setTimeout(()=>$('boundaryName').focus(),50)}else{$('hint').textContent="Boundary needs at least 3 points."}}else{data.boundary=[];data.boundaryName="";boundaryMode=true;$('boundaryBtn').textContent="✓ FINISH BOUNDARY";$('hint').textContent="Tap the map to add boundary points. Tap FINISH when done.";map.getContainer().style.cursor="crosshair";renderBoundary()}};
+map.on('click',e=>{if(!boundaryMode)return;data.boundary.push({lat:e.latlng.lat,lng:e.latlng.lng});renderBoundary()});
+$('cancelBoundary').onclick=()=>{$('boundaryDialog').classList.add('hidden');$('hint').textContent="Boundary captured. You can rename it by finishing boundary again."};
+$('saveBoundary').onclick=()=>{data.boundaryName=$('boundaryName').value.trim()||"Boundary";$('boundaryDialog').classList.add('hidden');save();renderBoundary();$('hint').textContent=`Boundary “${data.boundaryName}” saved.`};
+$('clearBoundaryBtn').onclick=()=>{if(confirm("Clear the entire property boundary?")){data.boundary=[];data.boundaryName="";save();renderBoundary()}};
 
-  samples.forEach(p=>{
-    const a=Math.max(1, Number(p.accuracy)||9999);
-    const weight=1/(a*a);
-    weightSum+=weight;
-    latSum+=p.latitude*weight;
-    lngSum+=p.longitude*weight;
-  });
+$('removeNearestBtn').onclick=()=>{if(!currentPosition){alert("Waiting for a GPS position.");return}if(!data.waypoints.length){alert("There are no waypoints to remove.");return}let idx=-1,dmin=Infinity;data.waypoints.forEach((w,i)=>{const d=dist({lat:currentPosition.latitude,lng:currentPosition.longitude},{lat:w.lat,lng:w.lng});if(d<dmin){dmin=d;idx=i}});if(idx<0)return;const removed=data.waypoints.splice(idx,1)[0];if(navigationTarget&&navigationTarget.id===removed.id)stopNavigation();save();renderWaypoints();$('hint').textContent=`Removed “${removed.name}” — ${Math.round(dmin)} m from your GPS position.`};
+$('saveNameBtn').onclick=()=>{data.name=$('propertyName').value.trim()||"My Property";save()};
 
-  const lat=latSum/weightSum;
-  const lng=lngSum/weightSum;
+function renderWaypoints(){waypointMarkers.forEach(m=>map.removeLayer(m));waypointMarkers=[];data.waypoints.forEach(w=>{const m=L.marker([w.lat,w.lng]).addTo(map);m.bindPopup(`<b>${esc(w.name)}</b><br>${w.lat.toFixed(6)}, ${w.lng.toFixed(6)}<br>Accuracy ±${Math.round(w.accuracy||0)} m<button class="navPopupBtn" data-nav-id="${esc(w.id)}">🧭 NAVIGATE HERE</button>`);m.on('popupopen',e=>{const btn=e.popup.getElement().querySelector('.navPopupBtn');if(btn)btn.onclick=()=>startNavigation(w.id)});waypointMarkers.push(m)})}
 
-  // Estimate the spread of the captured fixes.
-  let weightedSq=0;
-  samples.forEach(p=>{
-    const d=dist({lat,lng},{lat:p.latitude,lng:p.longitude});
-    const a=Math.max(1, Number(p.accuracy)||9999);
-    const weight=1/(a*a);
-    weightedSq += d*d*weight;
-  });
+function renderBoundary(){boundaryMarkers.forEach(m=>map.removeLayer(m));boundaryMarkers=[];boundaryEdgeLabels.forEach(m=>map.removeLayer(m));boundaryEdgeLabels=[];if(boundaryLine)map.removeLayer(boundaryLine);if(boundaryPolygon)map.removeLayer(boundaryPolygon);const pts=data.boundary.map(p=>[p.lat,p.lng]);data.boundary.forEach((p,i)=>{const m=L.circleMarker([p.lat,p.lng],{radius:6,color:"#2563eb",fillColor:"#60a5fa",fillOpacity:1}).bindTooltip(`Boundary ${i+1}`,{direction:"top"}).addTo(map);boundaryMarkers.push(m)});if(pts.length>=2){boundaryLine=L.polyline(pts,{color:"#2563eb",weight:4,dashArray:"8 6"}).addTo(map)}if(pts.length>=3){boundaryPolygon=L.polygon(pts,{color:"#2563eb",weight:2,fillColor:"#3b82f6",fillOpacity:.15}).addTo(map)}if(data.boundaryName&&pts.length>=2){for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length],mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];const label=L.marker(mid,{icon:L.divIcon({className:"",html:`<div class="boundaryEdgeLabel">${esc(data.boundaryName)}</div>`,iconSize:null,iconAnchor:[0,0]}),interactive:false}).addTo(map);boundaryEdgeLabels.push(label)}}updateStats()}
 
-  const spread=Math.sqrt(weightedSq/weightSum);
-  const bestAccuracy=Math.min(...samples.map(p=>Number(p.accuracy)||9999));
+function startNavigation(id){const w=data.waypoints.find(x=>x.id===id);if(!w)return;navigationTarget=w;$('navTarget').textContent=w.name; $('navigationPanel').classList.remove('hidden');if(navigationLine)map.removeLayer(navigationLine);navigationLine=L.polyline([], {color:"#f59e0b",weight:5,dashArray:"10 8"}).addTo(map);$('hint').textContent=`Navigate to “${w.name}”. Use the compass heading and turn guidance.`;updateNavigation();map.closePopup()}
+function stopNavigation(){navigationTarget=null;if(navigationLine){map.removeLayer(navigationLine);navigationLine=null}$('navigationPanel').classList.add('hidden');$('hint').textContent="GPS runs continuously. MARK HERE averages fixes for 3 seconds for a more stable waypoint."}
+$('stopNavigationBtn').onclick=stopNavigation;
+function bearingTo(a,b){const p1=a.lat*Math.PI/180,p2=b.lat*Math.PI/180,dl=(b.lng-a.lng)*Math.PI/180;const y=Math.sin(dl)*Math.cos(p2),x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);return(Math.atan2(y,x)*180/Math.PI+360)%360}
+function relativeTurn(target,heading){let d=((target-heading+540)%360)-180;return d}
+function directionText(d){const ad=Math.abs(d);if(ad<5)return"STRAIGHT AHEAD";if(ad<15)return`${Math.round(ad)}° ${d>0?"RIGHT":"LEFT"}`;return`${Math.round(ad)}° ${d>0?"RIGHT":"LEFT"}`}
+function updateNavigation(){if(!navigationTarget||!currentPosition)return;const a={lat:currentPosition.latitude,lng:currentPosition.longitude},b={lat:navigationTarget.lat,lng:navigationTarget.lng},distance=dist(a,b),bearing=bearingTo(a,b);$('navDistance').textContent=distance<1000?`${Math.round(distance)} m`:`${(distance/1000).toFixed(2)} km`;$('navBearing').textContent=`${Math.round(bearing)}°`;if(currentHeading===null)$('navDirection').textContent="Turn on COMPASS";else $('navDirection').textContent=directionText(relativeTurn(bearing,currentHeading));if(navigationLine)navigationLine.setLatLngs([[a.lat,a.lng],[b.lat,b.lng]])}
 
-  // Don't claim an accuracy better than the phone's best reported accuracy.
-  const estimatedAccuracy=Math.max(bestAccuracy, spread);
-
-  return {lat,lng,accuracy:estimatedAccuracy,bestAccuracy,spread};
-}
-
-function finishWaypointCapture(){
-  captureActive=false;
-
-  if(captureTimer){
-    clearTimeout(captureTimer);
-    captureTimer=null;
-  }
-
-  const recent = gpsSamples.filter(p=>Date.now()-p.timestamp <= MAX_SAMPLE_AGE_MS);
-
-  if(!recent.length){
-    $("hint").textContent="No usable GPS fixes received.";
-    alert("No usable GPS fixes were received. Try again in an open area.");
-    return;
-  }
-
-  // Prefer good fixes when available, but don't fail completely if the phone
-  // is currently reporting poorer accuracy.
-  const good = recent.filter(p=>p.accuracy <= 30);
-  const samples = good.length >= 3 ? good : recent.slice(-12);
-
-  const result=averageGPS(samples);
-  if(!result){
-    alert("Unable to calculate a GPS position.");
-    return;
-  }
-
-  pendingWaypoint={
-    lat:result.lat,
-    lng:result.lng,
-    accuracy:result.accuracy,
-    bestAccuracy:result.bestAccuracy,
-    sampleCount:samples.length
-  };
-
-  $("waypointName").value="";
-  $("captureInfo").textContent =
-    `GPS position averaged from ${result ? samples.length : 0} fixes. ` +
-    `Best reported accuracy ±${Math.round(result.bestAccuracy)} m; ` +
-    `estimated spread ±${Math.round(result.spread)} m.`;
-
-  $("waypointDialog").classList.remove("hidden");
-  $("hint").textContent="GPS capture complete. Name and save the waypoint.";
-  setTimeout(()=>$("waypointName").focus(),50);
-}
-
-function captureWaypoint(){
-  if(!currentPosition){
-    alert("Waiting for a GPS position. Make sure Location Services and Precise Location are enabled.");
-    return;
-  }
-
-  if(captureActive) return;
-
-  captureActive=true;
-  gpsSamples=[];
-  $("waypointDialog").classList.add("hidden");
-  $("hint").textContent="Collecting GPS fixes for 8 seconds…";
-  setGPSStatus("GPS capture in progress…");
-
-  // The watchPosition stream feeds samples continuously.
-  // Keep the current fix as a starting point if available.
-  addGPSSample(currentPosition);
-
-  captureTimer=setTimeout(finishWaypointCapture,CAPTURE_MS);
-}
-
-$("markBtn").onclick=captureWaypoint;
-
-$("cancelWaypoint").onclick=()=>{
-  pendingWaypoint=null;
-  captureActive=false;
-  if(captureTimer){
-    clearTimeout(captureTimer);
-    captureTimer=null;
-  }
-  $("waypointDialog").classList.add("hidden");
-  $("hint").textContent="Tap MARK HERE to save your current GPS position.";
-};
-
-$("saveWaypoint").onclick=()=>{
-  if(!pendingWaypoint)return;
-
-  data.waypoints.push({
-    id:crypto.randomUUID(),
-    name:$("waypointName").value.trim()||"Waypoint",
-    lat:pendingWaypoint.lat,
-    lng:pendingWaypoint.lng,
-    accuracy:pendingWaypoint.accuracy,
-    bestAccuracy:pendingWaypoint.bestAccuracy,
-    sampleCount:pendingWaypoint.sampleCount,
-    created:new Date().toISOString()
-  });
-
-  pendingWaypoint=null;
-  $("waypointDialog").classList.add("hidden");
-  save();
-  renderWaypoints();
-};
-
-$("boundaryBtn").onclick=()=>{
-  boundaryMode=!boundaryMode;
-  $("boundaryBtn").textContent=boundaryMode?"✓ FINISH BOUNDARY":"⬡ BOUNDARY";
-  $("hint").textContent=boundaryMode
-    ?"Tap the map to add boundary points. Tap FINISH when done."
-    :"Tap MARK HERE to save your current GPS position.";
-  map.getContainer().style.cursor=boundaryMode?"crosshair":"";
-};
-
-map.on("click",e=>{
-  if(!boundaryMode)return;
-  data.boundary.push({lat:e.latlng.lat,lng:e.latlng.lng});
-  save();
-  renderBoundary();
-});
-
-$("clearBoundaryBtn").onclick=()=>{
-  if(confirm("Clear the entire property boundary?")){
-    data.boundary=[];
-    save();
-    renderBoundary();
-  }
-};
-
-// Remove the waypoint geographically nearest to the current GPS position.
-// This intentionally has no confirmation so it is a single-click action.
-$("removeNearestBtn").onclick=()=>{
-  if(!currentPosition){
-    alert("Waiting for a GPS position.");
-    return;
-  }
-
-  if(!data.waypoints.length){
-    alert("There are no waypoints to remove.");
-    return;
-  }
-
-  let nearestIndex=-1;
-  let nearestDistance=Infinity;
-
-  data.waypoints.forEach((w,i)=>{
-    const d=dist(
-      {lat:currentPosition.latitude,lng:currentPosition.longitude},
-      {lat:w.lat,lng:w.lng}
-    );
-    if(d<nearestDistance){
-      nearestDistance=d;
-      nearestIndex=i;
-    }
-  });
-
-  if(nearestIndex<0)return;
-
-  const removed=data.waypoints.splice(nearestIndex,1)[0];
-  save();
-  renderWaypoints();
-
-  $("hint").textContent =
-    `Removed "${removed.name}" — ${Math.round(nearestDistance)} m from your GPS position.`;
-};
-
-$("saveNameBtn").onclick=()=>{
-  data.name=$("propertyName").value.trim()||"My Property";
-  save();
-};
-
-function renderWaypoints(){
-  waypointMarkers.forEach(m=>map.removeLayer(m));
-  waypointMarkers=[];
-
-  data.waypoints.forEach(w=>{
-    const m=L.marker([w.lat,w.lng]).addTo(map);
-    m.bindPopup(
-      `<b>${esc(w.name)}</b><br>`+
-      `${w.lat.toFixed(6)}, ${w.lng.toFixed(6)}<br>`+
-      `Accuracy ±${Math.round(w.accuracy||0)} m`
-    );
-    waypointMarkers.push(m);
-  });
-}
-
-function renderBoundary(){
-  boundaryMarkers.forEach(m=>map.removeLayer(m));
-  boundaryMarkers=[];
-
-  if(boundaryLine)map.removeLayer(boundaryLine);
-  if(boundaryPolygon)map.removeLayer(boundaryPolygon);
-
-  const pts=data.boundary.map(p=>[p.lat,p.lng]);
-
-  data.boundary.forEach((p,i)=>{
-    const m=L.circleMarker([p.lat,p.lng],{
-      radius:6,color:"#2563eb",fillColor:"#60a5fa",fillOpacity:1
-    });
-    m.bindTooltip(`Boundary ${i+1}`,{direction:"top"});
-    m.addTo(map);
-    boundaryMarkers.push(m);
-  });
-
-  if(pts.length>=2){
-    boundaryLine=L.polyline(pts,{
-      color:"#2563eb",weight:4,dashArray:"8 6"
-    }).addTo(map);
-  }
-
-  if(pts.length>=3){
-    boundaryPolygon=L.polygon(pts,{
-      color:"#2563eb",weight:2,fillColor:"#3b82f6",fillOpacity:.15
-    }).addTo(map);
-  }
-
-  updateStats();
-}
-
-function polygonAreaM2(points){
-  if(points.length<3)return 0;
-  const R=6378137;
-  const lat0=points.reduce((s,p)=>s+p.lat,0)/points.length*Math.PI/180;
-  const xy=points.map(p=>[
-    R*p.lng*Math.PI/180*Math.cos(lat0),
-    R*p.lat*Math.PI/180
-  ]);
-  let a=0;
-  for(let i=0;i<xy.length;i++){
-    let j=(i+1)%xy.length;
-    a+=xy[i][0]*xy[j][1]-xy[j][0]*xy[i][1];
-  }
-  return Math.abs(a/2);
-}
-
-function dist(a,b){
-  const R=6371008.8;
-  const p1=a.lat*Math.PI/180;
-  const p2=b.lat*Math.PI/180;
-  const dp=(b.lat-a.lat)*Math.PI/180;
-  const dl=(b.lng-a.lng)*Math.PI/180;
-  const x=Math.sin(dp/2)**2+
-    Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
-  return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
-}
-
-function polygonPerimeterM(points){
-  if(points.length<2)return 0;
-  let s=0;
-  for(let i=0;i<points.length;i++){
-    s+=dist(points[i],points[(i+1)%points.length]);
-  }
-  return s;
-}
-
-
-updateStats();
-renderWaypoints();
-renderBoundary();
-
-if("serviceWorker" in navigator){
-  navigator.serviceWorker.register("sw.js").catch(()=>{});
-}
+function polygonAreaM2(points){if(points.length<3)return 0;const R=6378137,lat0=points.reduce((s,p)=>s+p.lat,0)/points.length*Math.PI/180,xy=points.map(p=>[R*p.lng*Math.PI/180*Math.cos(lat0),R*p.lat*Math.PI/180]);let a=0;for(let i=0;i<xy.length;i++){const j=(i+1)%xy.length;a+=xy[i][0]*xy[j][1]-xy[j][0]*xy[i][1]}return Math.abs(a/2)}
+function dist(a,b){const R=6371008.8,p1=a.lat*Math.PI/180,p2=b.lat*Math.PI/180,dp=(b.lat-a.lat)*Math.PI/180,dl=(b.lng-a.lng)*Math.PI/180,x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))}
+function polygonPerimeterM(points){if(points.length<2)return 0;let s=0;for(let i=0;i<points.length;i++)s+=dist(points[i],points[(i+1)%points.length]);return s}
+updateStats();renderWaypoints();renderBoundary();
+if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});

@@ -1,45 +1,21 @@
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#111827;color:#fff}
-body{display:flex;flex-direction:column;overflow:hidden}
-.topbar{height:72px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;background:#111827;z-index:1000}
-.brand{font-size:21px;font-weight:800}
-.status{font-size:12px;color:#a7f3d0;margin-top:2px}
-.iconBtn{width:46px;height:46px;border-radius:50%;border:1px solid #4b5563;background:#1f2937;color:#fff;font-size:27px}
-main{position:relative;flex:1;min-height:0}
-#map{height:100%;width:100%}
-.mapBadge{position:absolute;right:12px;top:12px;z-index:900;background:rgba(17,24,39,.85);padding:7px 10px;border-radius:10px;font-size:12px}
-.bottomPanel{background:#111827;padding:10px 12px max(12px,env(safe-area-inset-bottom));z-index:1000;box-shadow:0 -4px 18px rgba(0,0,0,.3)}
-.propertyRow{display:flex;gap:7px;margin-bottom:8px}
-.propertyRow input{flex:1;min-width:0;background:#1f2937;border:1px solid #374151;color:#fff;border-radius:9px;padding:10px;font-size:15px}
-.smallBtn{border:0;border-radius:9px;padding:0 12px;background:#374151;color:#fff}
-.stats{display:flex;justify-content:space-between;padding:3px 2px 9px}
-.stats div{display:flex;flex-direction:column;gap:2px}
-.stats span{font-size:11px;color:#9ca3af}
-.stats strong{font-size:15px}
-.actions{display:flex;gap:8px}
-.actions button,.fileLabel{flex:1;min-height:48px;border-radius:11px;font-weight:800;font-size:14px}
-.primary{background:#22c55e;color:#062d12;border:0}
-.secondary{background:#374151;color:#fff;border:1px solid #4b5563}
-.danger{background:#3b1d1d;color:#fecaca;border:1px solid #7f1d1d}
-.secondaryActions{margin-top:8px}
-.secondaryActions button,.fileLabel{font-weight:600;font-size:12px;min-height:38px}
-.fileLabel{display:flex;align-items:center;justify-content:center;cursor:pointer}
-.fileLabel input{display:none}
-.hint{text-align:center;color:#9ca3af;font-size:11px;padding-top:7px}
-.dialog{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:5000;display:flex;align-items:flex-end;justify-content:center}
-.dialog.hidden{display:none}
-.dialogCard{width:100%;max-width:520px;background:#111827;border-radius:18px 18px 0 0;padding:20px 16px max(20px,env(safe-area-inset-bottom))}
-.dialogCard h2{margin:0 0 8px;font-size:20px}
-.captureInfo{color:#a7f3d0;font-size:12px;line-height:1.45;margin-bottom:12px}
-.dialogCard input{width:100%;padding:13px;border-radius:10px;border:1px solid #4b5563;background:#1f2937;color:#fff;font-size:16px}
-.dialogActions{display:flex;gap:8px;margin-top:12px}
-.dialogActions button{flex:1;min-height:46px;border-radius:10px;font-weight:700;border:0}
-.leaflet-control-attribution{font-size:9px}
-.leaflet-popup-content{font-size:14px}
+body{display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top)}
+.topbar{height:82px;min-height:82px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;background:#111827;z-index:1000}
+.brand{font-size:23px;font-weight:800;line-height:1.05}.status{font-size:13px;color:#a7f3d0;margin-top:5px}
+.iconBtn{width:48px;height:48px;border-radius:50%;border:1px solid #4b5563;background:#1f2937;color:#fff;font-size:28px}
+main{position:relative;flex:1;min-height:0}#map{height:100%;width:100%}
+.mapBadge{position:absolute;right:12px;top:12px;z-index:900;background:rgba(17,24,39,.9);padding:8px 11px;border-radius:10px;font-size:12px}
+.mapTools{position:absolute;left:12px;top:12px;z-index:1000;display:flex;gap:6px}.mapToolBtn{background:rgba(17,24,39,.92);color:#fff;border:1px solid #4b5563;border-radius:10px;padding:9px 10px;font-size:11px;font-weight:800}
+.navigationPanel{position:absolute;left:10px;right:10px;top:56px;z-index:1100;background:rgba(17,24,39,.96);border:1px solid #4b5563;border-radius:14px;padding:10px 12px;box-shadow:0 5px 18px rgba(0,0,0,.3)}
+.navigationPanel.hidden{display:none}.navTitle{font-size:11px;color:#a7f3d0;font-weight:800;margin-bottom:7px}.navGrid{display:grid;grid-template-columns:1fr 1fr 1.45fr;gap:7px}.navGrid div{display:flex;flex-direction:column;gap:2px}.navGrid span{font-size:10px;color:#9ca3af}.navGrid strong{font-size:14px}.navStop{width:100%;margin-top:8px;min-height:34px;border-radius:8px;border:1px solid #7f1d1d;background:#3b1d1d;color:#fecaca;font-weight:800;font-size:11px}
+.bottomPanel{background:#111827;padding:10px 12px max(14px,env(safe-area-inset-bottom));z-index:1000;box-shadow:0 -4px 18px rgba(0,0,0,.3)}
+.propertyRow{display:flex;gap:7px;margin-bottom:8px}.propertyRow input{flex:1;min-width:0;background:#1f2937;border:1px solid #374151;color:#fff;border-radius:9px;padding:10px;font-size:15px}.smallBtn{border:0;border-radius:9px;padding:0 12px;background:#374151;color:#fff}
+.stats{display:flex;justify-content:space-between;padding:3px 2px 9px}.stats div{display:flex;flex-direction:column;gap:2px}.stats span{font-size:11px;color:#9ca3af}.stats strong{font-size:15px}
+.actions{display:flex;gap:8px}.actions button{flex:1;min-height:48px;border-radius:11px;font-weight:800;font-size:14px}.primary{background:#22c55e;color:#062d12;border:0}.secondary{background:#374151;color:#fff;border:1px solid #4b5563}.danger{background:#3b1d1d;color:#fecaca;border:1px solid #7f1d1d}.secondaryActions{margin-top:8px}.secondaryActions button{font-weight:800;font-size:11px;min-height:40px}.removeWaypointBtn{font-size:12px!important}.hint{text-align:center;color:#9ca3af;font-size:11px;padding-top:7px;line-height:1.35}
+.dialog{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:5000;display:flex;align-items:flex-end;justify-content:center}.dialog.hidden{display:none}.dialogCard{width:100%;max-width:520px;background:#111827;border-radius:18px 18px 0 0;padding:20px 16px max(20px,env(safe-area-inset-bottom))}.dialogCard h2{margin:0 0 8px;font-size:20px}.captureInfo{color:#a7f3d0;font-size:12px;line-height:1.45;margin-bottom:12px}.dialogCard input{width:100%;padding:13px;border-radius:10px;border:1px solid #4b5563;background:#1f2937;color:#fff;font-size:16px}.dialogActions{display:flex;gap:8px;margin-top:12px}.dialogActions button{flex:1;min-height:46px;border-radius:10px;font-weight:700;border:0}
+.headingMarker{background:transparent;border:0}.headingMarker .headingArrow{width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:30px solid #2563eb;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));transform-origin:50% 80%;position:relative}.headingMarker .headingDot{width:14px;height:14px;border-radius:50%;background:#3b82f6;border:3px solid #fff;position:absolute;left:-7px;top:18px}
+.leaflet-control-attribution{font-size:9px}.leaflet-popup-content{font-size:14px}.navPopupBtn{margin-top:7px;width:100%;padding:7px 9px;border:0;border-radius:7px;background:#2563eb;color:#fff;font-weight:700}
+.boundaryEdgeLabel{background:rgba(17,24,39,.9);border:1px solid #60a5fa;color:#fff;border-radius:6px;padding:2px 5px;font-size:10px;font-weight:700;box-shadow:none}.boundaryEdgeLabel:before{display:none}
 @media(min-width:800px){.bottomPanel{max-width:620px;margin:0 auto;width:100%;border-radius:14px 14px 0 0}.topbar{padding-left:24px;padding-right:24px}}
-
-.removeWaypointBtn{
-  min-height:48px!important;
-  font-size:13px!important;
-  font-weight:900!important;
-}
+@media(max-height:700px){.topbar{height:72px;min-height:72px}.bottomPanel{padding-top:7px}.stats{padding-bottom:6px}.actions button{min-height:43px}.secondaryActions button{min-height:34px}.hint{padding-top:5px}}
