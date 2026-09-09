@@ -43,17 +43,28 @@
       <button id="markBtn" class="primary">📍 MARK HERE</button>
       <button id="boundaryBtn" class="secondary">⬡ BOUNDARY</button>
     </div>
+
     <div class="actions secondaryActions">
+      <button id="removeNearestBtn" class="danger">✕ Remove Nearest</button>
       <button id="clearBoundaryBtn" class="danger">Clear Boundary</button>
-      <button id="exportBtn" class="secondary">Export JSON</button>
-      <label class="secondary fileLabel">Import JSON<input id="importInput" type="file" accept=".json"></label>
     </div>
-    <div id="hint" class="hint">Tap MARK HERE to save your current GPS position.</div>
+
+    <div class="actions secondaryActions">
+      <button id="exportBtn" class="secondary">Export JSON</button>
+      <label class="secondary fileLabel">
+        Import JSON<input id="importInput" type="file" accept=".json">
+      </label>
+    </div>
+
+    <div id="hint" class="hint">
+      GPS runs continuously. MARK HERE averages fixes for 8 seconds for a more stable waypoint.
+    </div>
   </section>
 
   <div id="waypointDialog" class="dialog hidden">
     <div class="dialogCard">
       <h2>Name waypoint</h2>
+      <div id="captureInfo" class="captureInfo"></div>
       <input id="waypointName" placeholder="e.g. Gate 1, Dam, Shed" autofocus>
       <div class="dialogActions">
         <button id="cancelWaypoint" class="secondary">Cancel</button>
