@@ -11,13 +11,17 @@ let currentHeading=null,headingSource="",headingPermissionAsked=false;
 let navigationTarget=null,navigationLine=null,animationFrame=null,lastRenderedLL=null,targetRenderedLL=null;
 const CAPTURE_MS=3000, MAX_SAMPLE_AGE_MS=12000;
 
+const MAPTILER_KEY="BrG5QPYZu0l1ZQnYR2QJ";
 const map=L.map("map",{zoomControl:false,preferCanvas:true,maxZoom:22}).setView([-37.8136,144.9631],10);
 L.control.zoom({position:"bottomright"}).addTo(map);
-const streetLayer=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"});
-const topoLayer=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",{maxZoom:22,maxNativeZoom:19,attribution:"Tiles &copy; Esri | Map data &copy; OpenStreetMap contributors"});
-const satelliteLayer=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:22,maxNativeZoom:19,attribution:"Tiles &copy; Esri"});
+const mapAttribution="&copy; MapTiler &copy; OpenStreetMap contributors";
+const topoLayer=L.tileLayer(`https://api.maptiler.com/maps/topo-v4/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
+const streetLayer=L.tileLayer(`https://api.maptiler.com/maps/streets-v4/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
+const satelliteLayer=L.tileLayer(`https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:21,attribution:"&copy; MapTiler &copy; OpenStreetMap contributors"});
 topoLayer.addTo(map);
 let mapMode="topo";
+const mapModes=["topo","street","satellite"];
+const mapLabels={topo:"🗻 TOPO",street:"🛣️ STREET",satellite:"🛰️ SATELLITE"};
 const $=id=>document.getElementById(id);
 function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify(data));updateStats()}
 function updateStats(){$("propertyName").value=data.name;$('waypointCount').textContent=data.waypoints.length;const area=polygonAreaM2(data.boundary),perimeter=polygonPerimeterM(data.boundary);$('boundaryArea').textContent=`${(area/10000).toFixed(2)} ha`;$('boundaryPerimeter').textContent=`${(perimeter/1000).toFixed(2)} km`}
@@ -38,7 +42,14 @@ async function requestCompass(){if(typeof DeviceOrientationEvent!=="undefined"&&
 function handleOrientation(e){let h=null;if(typeof e.webkitCompassHeading==="number"&&e.webkitCompassHeading>=0)h=e.webkitCompassHeading;else if(typeof e.alpha==="number")h=(360-e.alpha)%360; if(h===null)return;currentHeading=h;headingSource=e.webkitCompassHeading!==undefined?"compass":"device orientation";if(currentPosition)updateHeadingMarker([currentPosition.latitude,currentPosition.longitude]);updateNavigation()}
 $('compassBtn').onclick=requestCompass;
 
-$('mapTypeBtn').onclick=()=>{if(mapMode==="topo"){map.removeLayer(topoLayer);satelliteLayer.addTo(map);mapMode="satellite";$('mapTypeBtn').textContent="🗻 TOPOGRAPHY"}else{map.removeLayer(satelliteLayer);topoLayer.addTo(map);mapMode="topo";$('mapTypeBtn').textContent="🛰️ SATELLITE"}};
+$('mapTypeBtn').onclick=()=>{
+  const i=mapModes.indexOf(mapMode);
+  const next=mapModes[(i+1)%mapModes.length];
+  [topoLayer,streetLayer,satelliteLayer].forEach(l=>{if(map.hasLayer(l))map.removeLayer(l)});
+  ({topo:topoLayer,street:streetLayer,satellite:satelliteLayer}[next]).addTo(map);
+  mapMode=next;
+  $('mapTypeBtn').textContent=mapLabels[next];
+};
 
 function averageGPS(samples){if(!samples.length)return null;let ws=0,lat=0,lng=0;samples.forEach(p=>{const a=Math.max(1,p.accuracy||9999),w=1/(a*a);ws+=w;lat+=p.latitude*w;lng+=p.longitude*w});lat/=ws;lng/=ws;let sq=0;samples.forEach(p=>{const d=dist({lat,lng},{lat:p.latitude,lng:p.longitude});const w=1/(Math.max(1,p.accuracy||9999)**2);sq+=d*d*w});const spread=Math.sqrt(sq/ws),bestAccuracy=Math.min(...samples.map(p=>p.accuracy||9999));return{lat,lng,accuracy:Math.max(bestAccuracy,spread),bestAccuracy,spread}}
 function finishWaypointCapture(){captureActive=false;if(captureTimer){clearTimeout(captureTimer);captureTimer=null}const recent=gpsSamples.filter(p=>Date.now()-p.timestamp<=MAX_SAMPLE_AGE_MS);if(!recent.length){alert("No usable GPS fixes were received.");return}const good=recent.filter(p=>p.accuracy<=30),samples=good.length>=2?good:recent.slice(-15),r=averageGPS(samples);if(!r)return;pendingWaypoint={lat:r.lat,lng:r.lng,accuracy:r.accuracy,bestAccuracy:r.bestAccuracy,sampleCount:samples.length};$('waypointName').value="";$('captureInfo').textContent=`Averaged ${samples.length} fixes. Best ±${Math.round(r.bestAccuracy)} m; estimated spread ±${Math.round(r.spread)} m.`;$('waypointDialog').classList.remove('hidden');$('hint').textContent="GPS capture complete. Name and save the waypoint.";setTimeout(()=>$('waypointName').focus(),50)}
