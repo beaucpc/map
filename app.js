@@ -4,7 +4,7 @@ if(!Array.isArray(data.waypoints)) data.waypoints=[];
 if(!Array.isArray(data.boundary)) data.boundary=[];
 
 let currentPosition=null, userMarker=null, accuracyCircle=null, headingMarker=null;
-let boundaryLine=null,boundaryPolygon=null,boundaryMarkers=[],boundaryEdgeLabels=[],waypointMarkers=[];
+let boundaryLine=null,boundaryPolygon=null,boundaryMarkers=[],boundaryEdgeLabels=[],waypointMarkers=[],waypointAccuracyCircles=[];
 let pendingWaypoint=null,boundaryMode=false,pendingBoundaryName="";
 let gpsWatchId=null,latestRawPosition=null,gpsSamples=[],captureTimer=null,captureActive=false;
 let currentHeading=null,headingSource="",headingPermissionAsked=false;
@@ -15,13 +15,12 @@ const MAPTILER_KEY="BrG5QPYZu0l1ZQnYR2QJ";
 const map=L.map("map",{zoomControl:false,preferCanvas:true,maxZoom:22}).setView([-37.8136,144.9631],10);
 L.control.zoom({position:"bottomright"}).addTo(map);
 const mapAttribution="&copy; MapTiler &copy; OpenStreetMap contributors";
-const topoLayer=L.tileLayer(`https://api.maptiler.com/maps/topo-v4/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
-const streetLayer=L.tileLayer(`https://api.maptiler.com/maps/streets-v4/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
-const satelliteLayer=L.tileLayer(`https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:21,attribution:"&copy; MapTiler &copy; OpenStreetMap contributors"});
+const topoLayer=L.tileLayer(`https://api.maptiler.com/maps/outdoor-v4/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
+const satelliteLayer=L.tileLayer(`https://api.maptiler.com/tiles/satellite-v4/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
 topoLayer.addTo(map);
 let mapMode="topo";
-const mapModes=["topo","street","satellite"];
-const mapLabels={topo:"🗻 TOPO",street:"🛣️ STREET",satellite:"🛰️ SATELLITE"};
+const mapModes=["topo","satellite"];
+const mapLabels={topo:"🗻 TOPO",satellite:"🛰️ SATELLITE"};
 const $=id=>document.getElementById(id);
 function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify(data));updateStats()}
 function updateStats(){$("propertyName").value=data.name;$('waypointCount').textContent=data.waypoints.length;const area=polygonAreaM2(data.boundary),perimeter=polygonPerimeterM(data.boundary);$('boundaryArea').textContent=`${(area/10000).toFixed(2)} ha`;$('boundaryPerimeter').textContent=`${(perimeter/1000).toFixed(2)} km`}
@@ -45,11 +44,24 @@ $('compassBtn').onclick=requestCompass;
 $('mapTypeBtn').onclick=()=>{
   const i=mapModes.indexOf(mapMode);
   const next=mapModes[(i+1)%mapModes.length];
-  [topoLayer,streetLayer,satelliteLayer].forEach(l=>{if(map.hasLayer(l))map.removeLayer(l)});
-  ({topo:topoLayer,street:streetLayer,satellite:satelliteLayer}[next]).addTo(map);
+  [topoLayer,satelliteLayer].forEach(l=>{if(map.hasLayer(l))map.removeLayer(l)});
+  ({topo:topoLayer,satellite:satelliteLayer}[next]).addTo(map);
   mapMode=next;
   $('mapTypeBtn').textContent=mapLabels[next];
 };
+
+const OFFLINE_CACHE="propertygps-map-tiles-v1";
+function tileXY(lat,lng,z){const n=Math.pow(2,z),x=Math.floor((lng+180)/360*n),latRad=lat*Math.PI/180,y=Math.floor((1-Math.asinh(Math.tan(latRad))/Math.PI)/2*n);return{x,y}}
+function tileUrl(layer,z,x,y){return layer==="topo"?`https://api.maptiler.com/maps/outdoor-v4/${z}/${x}/${y}.png?key=${MAPTILER_KEY}`:`https://api.maptiler.com/tiles/satellite-v4/${z}/${x}/${y}.jpg?key=${MAPTILER_KEY}`}
+async function saveOfflineArea(){
+ const bounds=map.getBounds(), centerZoom=Math.round(map.getZoom()), minZ=Math.max(10,centerZoom-2), maxZ=Math.min(18,centerZoom+2), urls=[];
+ for(const layer of ["topo","satellite"]) for(let z=minZ;z<=maxZ;z++){const nw=tileXY(bounds.getNorth(),bounds.getWest(),z),se=tileXY(bounds.getSouth(),bounds.getEast(),z),n=Math.pow(2,z);for(let x=nw.x;x<=se.x;x++)for(let y=nw.y;y<=se.y;y++)urls.push(tileUrl(layer,z,x,y));}
+ if(urls.length>700){alert(`That area is too large to download at these zoom levels (${urls.length} tiles). Zoom in closer and try again.`);return}
+ const cache=await caches.open(OFFLINE_CACHE);let done=0,failed=0;$('offlineBtn').disabled=true;
+ for(const url of urls){try{const res=await fetch(url,{mode:"cors",cache:"force-cache"});if(res.ok)await cache.put(url,res.clone());else failed++}catch(e){failed++}done++;$('offlineBtn').textContent=`⬇ ${Math.round(done/urls.length*100)}%`}
+ $('offlineBtn').disabled=false;$('offlineBtn').textContent="⬇ SAVE AREA OFFLINE";$('hint').textContent=failed?`Offline area saved with ${failed} unavailable tiles.`:"Topo + satellite area saved for offline use.";
+}
+$('offlineBtn').onclick=saveOfflineArea;
 
 function averageGPS(samples){if(!samples.length)return null;let ws=0,lat=0,lng=0;samples.forEach(p=>{const a=Math.max(1,p.accuracy||9999),w=1/(a*a);ws+=w;lat+=p.latitude*w;lng+=p.longitude*w});lat/=ws;lng/=ws;let sq=0;samples.forEach(p=>{const d=dist({lat,lng},{lat:p.latitude,lng:p.longitude});const w=1/(Math.max(1,p.accuracy||9999)**2);sq+=d*d*w});const spread=Math.sqrt(sq/ws),bestAccuracy=Math.min(...samples.map(p=>p.accuracy||9999));return{lat,lng,accuracy:Math.max(bestAccuracy,spread),bestAccuracy,spread}}
 function finishWaypointCapture(){captureActive=false;if(captureTimer){clearTimeout(captureTimer);captureTimer=null}const recent=gpsSamples.filter(p=>Date.now()-p.timestamp<=MAX_SAMPLE_AGE_MS);if(!recent.length){alert("No usable GPS fixes were received.");return}const good=recent.filter(p=>p.accuracy<=30),samples=good.length>=2?good:recent.slice(-15),r=averageGPS(samples);if(!r)return;pendingWaypoint={lat:r.lat,lng:r.lng,accuracy:r.accuracy,bestAccuracy:r.bestAccuracy,sampleCount:samples.length};$('waypointName').value="";$('captureInfo').textContent=`Averaged ${samples.length} fixes. Best ±${Math.round(r.bestAccuracy)} m; estimated spread ±${Math.round(r.spread)} m.`;$('waypointDialog').classList.remove('hidden');$('hint').textContent="GPS capture complete. Name and save the waypoint.";setTimeout(()=>$('waypointName').focus(),50)}
@@ -65,9 +77,30 @@ $('saveBoundary').onclick=()=>{data.boundaryName=$('boundaryName').value.trim()|
 $('clearBoundaryBtn').onclick=()=>{if(confirm("Clear the entire property boundary?")){data.boundary=[];data.boundaryName="";save();renderBoundary()}};
 
 $('removeNearestBtn').onclick=()=>{if(!currentPosition){alert("Waiting for a GPS position.");return}if(!data.waypoints.length){alert("There are no waypoints to remove.");return}let idx=-1,dmin=Infinity;data.waypoints.forEach((w,i)=>{const d=dist({lat:currentPosition.latitude,lng:currentPosition.longitude},{lat:w.lat,lng:w.lng});if(d<dmin){dmin=d;idx=i}});if(idx<0)return;const removed=data.waypoints.splice(idx,1)[0];if(navigationTarget&&navigationTarget.id===removed.id)stopNavigation();save();renderWaypoints();$('hint').textContent=`Removed “${removed.name}” — ${Math.round(dmin)} m from your GPS position.`};
+$('navigateNearestBtn').onclick=()=>{
+  if(!currentPosition){alert("Waiting for a GPS position.");return}
+  if(!data.waypoints.length){alert("There are no waypoints.");return}
+  let nearest=null,dmin=Infinity;
+  data.waypoints.forEach(w=>{const d=dist({lat:currentPosition.latitude,lng:currentPosition.longitude},{lat:w.lat,lng:w.lng});if(d<dmin){dmin=d;nearest=w}});
+  if(nearest) startNavigation(nearest.id);
+};
 $('saveNameBtn').onclick=()=>{data.name=$('propertyName').value.trim()||"My Property";save()};
 
-function renderWaypoints(){waypointMarkers.forEach(m=>map.removeLayer(m));waypointMarkers=[];data.waypoints.forEach(w=>{const m=L.marker([w.lat,w.lng]).addTo(map);m.bindPopup(`<b>${esc(w.name)}</b><br>${w.lat.toFixed(6)}, ${w.lng.toFixed(6)}<br>Accuracy ±${Math.round(w.accuracy||0)} m<button class="navPopupBtn" data-nav-id="${esc(w.id)}">🧭 NAVIGATE HERE</button>`);m.on('popupopen',e=>{const btn=e.popup.getElement().querySelector('.navPopupBtn');if(btn)btn.onclick=()=>startNavigation(w.id)});waypointMarkers.push(m)})}
+function renderWaypoints(){
+  waypointMarkers.forEach(m=>map.removeLayer(m));
+  waypointMarkers=[];
+  waypointAccuracyCircles.forEach(m=>map.removeLayer(m));
+  waypointAccuracyCircles=[];
+  data.waypoints.forEach(w=>{
+    const accuracy=Math.max(1,Number(w.accuracy)||0);
+    const accuracyCircle=L.circle([w.lat,w.lng], {radius:accuracy,color:"#2563eb",weight:1.5,fillColor:"#3b82f6",fillOpacity:.05,interactive:false}).addTo(map);
+    waypointAccuracyCircles.push(accuracyCircle);
+    const m=L.circleMarker([w.lat,w.lng],{radius:5,color:"#fff",weight:2,fillColor:"#2563eb",fillOpacity:1}).addTo(map);
+    m.bindPopup(`<b>${esc(w.name)}</b><br>${w.lat.toFixed(6)}, ${w.lng.toFixed(6)}<br>Accuracy ±${Math.round(accuracy)} m<button class="navPopupBtn" data-nav-id="${esc(w.id)}">🧭 NAVIGATE HERE</button>`);
+    m.on('popupopen',e=>{const btn=e.popup.getElement().querySelector('.navPopupBtn');if(btn)btn.onclick=()=>startNavigation(w.id)});
+    waypointMarkers.push(m);
+  });
+}
 
 function renderBoundary(){boundaryMarkers.forEach(m=>map.removeLayer(m));boundaryMarkers=[];boundaryEdgeLabels.forEach(m=>map.removeLayer(m));boundaryEdgeLabels=[];if(boundaryLine)map.removeLayer(boundaryLine);if(boundaryPolygon)map.removeLayer(boundaryPolygon);const pts=data.boundary.map(p=>[p.lat,p.lng]);data.boundary.forEach((p,i)=>{const m=L.circleMarker([p.lat,p.lng],{radius:6,color:"#2563eb",fillColor:"#60a5fa",fillOpacity:1}).bindTooltip(`Boundary ${i+1}`,{direction:"top"}).addTo(map);boundaryMarkers.push(m)});if(pts.length>=2){boundaryLine=L.polyline(pts,{color:"#2563eb",weight:4,dashArray:"8 6"}).addTo(map)}if(pts.length>=3){boundaryPolygon=L.polygon(pts,{color:"#2563eb",weight:2,fillColor:"#3b82f6",fillOpacity:.15}).addTo(map)}if(data.boundaryName&&pts.length>=2){let labelEdge=0,labelLength=-1;for(let i=0;i<pts.length;i++){const a=data.boundary[i],b=data.boundary[(i+1)%data.boundary.length],len=dist(a,b);if(len>labelLength){labelLength=len;labelEdge=i}}const a=pts[labelEdge],b=pts[(labelEdge+1)%pts.length],mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];const label=L.marker(mid,{icon:L.divIcon({className:"",html:`<div class="boundaryEdgeLabel">${esc(data.boundaryName)}</div>`,iconSize:null,iconAnchor:[0,0]}),interactive:false}).addTo(map);boundaryEdgeLabels.push(label)}updateStats()}
 

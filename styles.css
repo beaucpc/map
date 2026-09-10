@@ -19,3 +19,5 @@ main{position:relative;flex:1;min-height:0}#map{height:100%;width:100%}
 .boundaryEdgeLabel{background:rgba(17,24,39,.9);border:1px solid #60a5fa;color:#fff;border-radius:6px;padding:2px 5px;font-size:10px;font-weight:700;box-shadow:none}.boundaryEdgeLabel:before{display:none}
 @media(min-width:800px){.bottomPanel{max-width:620px;margin:0 auto;width:100%;border-radius:14px 14px 0 0}.topbar{padding-left:24px;padding-right:24px}}
 @media(max-height:700px){.topbar{height:72px;min-height:72px}.bottomPanel{padding-top:7px}.stats{padding-bottom:6px}.actions button{min-height:43px}.secondaryActions button{min-height:34px}.hint{padding-top:5px}}
+
+#offlineBtn{font-size:10px;white-space:nowrap}.leaflet-marker-icon{touch-action:none}
