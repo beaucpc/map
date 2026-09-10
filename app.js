@@ -90,6 +90,7 @@ async function saveOfflineArea(){
 $('offlineBtn').onclick=saveOfflineArea;
 
 function captureWaypoint(){
+  // Place immediately from the latest live GPS fix; no sampling/averaging.
   if(!currentPosition){alert("Waiting for GPS. Make sure Location Services and Precise Location are enabled.");return}
   const accuracy=Math.max(1,Number(currentPosition.accuracy)||9999);
   const waypointNumber=data.waypoints.length+1;
@@ -107,7 +108,7 @@ function captureWaypoint(){
   renderWaypoints();
   $('hint').textContent=`Waypoint placed — ±${Math.round(accuracy)} m.`;
 }
-$('markBtn').onclick=captureWaypoint;
+$('markBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();captureWaypoint();});
 
 $('removeNearestBtn').onclick=()=>{if(!currentPosition){alert("Waiting for a GPS position.");return}if(!data.waypoints.length){alert("There are no waypoints to remove.");return}let idx=-1,dmin=Infinity;data.waypoints.forEach((w,i)=>{const d=dist({lat:currentPosition.latitude,lng:currentPosition.longitude},{lat:w.lat,lng:w.lng});if(d<dmin){dmin=d;idx=i}});if(idx<0)return;const removed=data.waypoints.splice(idx,1)[0];if(navigationTarget&&navigationTarget.id===removed.id)stopNavigation();save();renderWaypoints();$('hint').textContent=`Removed “${removed.name}” — ${Math.round(dmin)} m from your GPS position.`};
 $('navigateNearestBtn').onclick=()=>{

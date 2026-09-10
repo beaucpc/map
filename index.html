@@ -19,11 +19,11 @@
       <div class="brand">PropertyGPS</div>
       <div id="status" class="status">GPS not started</div>
     </div>
+    <button id="locateBtn" class="iconBtn headerLocateBtn" title="Follow my GPS position" aria-label="Follow my GPS position">◎</button>
   </header>
 
   <main>
     <div id="map"></div>
-    <button id="locateBtn" class="iconBtn mapLocateBtn" title="Follow my GPS position" aria-label="Follow my GPS position">◎</button>
     <div class="mapTools">
       <button id="mapTypeBtn" class="mapToolBtn">🗻 TOPO</button>
       <button id="offlineBtn" class="mapToolBtn">⬇ SAVE AREA OFFLINE</button>
@@ -58,7 +58,7 @@
       <button id="clearBoundaryBtn" class="danger">✕ CLEAR NEAREST BOUNDARY</button>
     </div>
 
-    <div id="hint" class="hint">GPS runs continuously. MARK HERE averages fixes for 3 seconds for a more stable waypoint.</div>
+    <div id="hint" class="hint">GPS runs continuously. MARK HERE places a waypoint immediately at your current GPS position.</div>
   </section>
 
   <div id="boundaryDialog" class="dialog hidden">
