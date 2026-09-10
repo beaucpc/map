@@ -16,7 +16,7 @@ const map=L.map("map",{zoomControl:false,preferCanvas:true,maxZoom:22}).setView(
 L.control.zoom({position:"bottomright"}).addTo(map);
 const mapAttribution="&copy; MapTiler &copy; OpenStreetMap contributors";
 const topoLayer=L.tileLayer(`https://api.maptiler.com/maps/outdoor-v4/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
-const satelliteLayer=L.tileLayer(`https://api.maptiler.com/tiles/satellite-v4/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
+const satelliteLayer=L.tileLayer(`https://api.maptiler.com/maps/satellite-v4/{z}/{x}/{y}@2x.jpg?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
 topoLayer.addTo(map);
 let mapMode="topo";
 const mapModes=["topo","satellite"];
@@ -62,9 +62,9 @@ $('mapTypeBtn').onclick=()=>{
   $('mapTypeBtn').textContent=mapLabels[next];
 };
 
-const OFFLINE_CACHE="propertygps-map-tiles-v1";
+const OFFLINE_CACHE="propertygps-map-tiles-v2";
 function tileXY(lat,lng,z){const n=Math.pow(2,z),x=Math.floor((lng+180)/360*n),latRad=lat*Math.PI/180,y=Math.floor((1-Math.asinh(Math.tan(latRad))/Math.PI)/2*n);return{x,y}}
-function tileUrl(layer,z,x,y){return layer==="topo"?`https://api.maptiler.com/maps/outdoor-v4/${z}/${x}/${y}.png?key=${MAPTILER_KEY}`:`https://api.maptiler.com/tiles/satellite-v4/${z}/${x}/${y}.jpg?key=${MAPTILER_KEY}`}
+function tileUrl(layer,z,x,y){return layer==="topo"?`https://api.maptiler.com/maps/outdoor-v4/${z}/${x}/${y}.png?key=${MAPTILER_KEY}`:`https://api.maptiler.com/maps/satellite-v4/${z}/${x}/${y}@2x.jpg?key=${MAPTILER_KEY}`}
 async function saveOfflineArea(){
  const bounds=map.getBounds(), centerZoom=Math.round(map.getZoom()), minZ=Math.max(10,centerZoom-2), maxZ=Math.min(18,centerZoom+2), urls=[];
  for(const layer of ["topo","satellite"]) for(let z=minZ;z<=maxZ;z++){const nw=tileXY(bounds.getNorth(),bounds.getWest(),z),se=tileXY(bounds.getSouth(),bounds.getEast(),z),n=Math.pow(2,z);for(let x=nw.x;x<=se.x;x++)for(let y=nw.y;y<=se.y;y++)urls.push(tileUrl(layer,z,x,y));}
@@ -138,7 +138,8 @@ function renderBoundary(){
   if(boundaryPolygon)map.removeLayer(boundaryPolygon); boundaryPolygon=null;
   const pts=data.boundary.map(p=>[p.lat,p.lng]);
   data.boundary.forEach((p,i)=>{
-    const m=L.circleMarker([p.lat,p.lng],{radius:7,color:"#fff",weight:2,fillColor:"#2563eb",fillOpacity:1,draggable:true}).bindTooltip(`Boundary ${i+1} — drag to move`,{direction:"top"}).addTo(map);
+    const icon=L.divIcon({className:"boundaryDragHandle",html:"<span></span>",iconSize:[24,24],iconAnchor:[12,12]});
+    const m=L.marker([p.lat,p.lng],{icon,draggable:true,zIndexOffset:800}).bindTooltip(`Boundary ${i+1} — drag to move`,{direction:"top"}).addTo(map);
     m.on('drag',e=>{
       const ll=e.target.getLatLng(); data.boundary[i].lat=ll.lat; data.boundary[i].lng=ll.lng;
       boundaryGeometry();
@@ -148,12 +149,6 @@ function renderBoundary(){
   });
   if(pts.length>=2){
     boundaryLine=L.polyline(pts,{color:"#2563eb",weight:5,dashArray:"8 6",bubblingMouseEvents:false}).addTo(map);
-    boundaryLine.on('dblclick',e=>{
-      const index=nearestBoundarySegmentIndex(e.latlng);
-      data.boundary.splice(index+1,0,{lat:e.latlng.lat,lng:e.latlng.lng});
-      save(); renderBoundary(); $('hint').textContent=`Added boundary point ${index+2}. Drag it to adjust the corner.`;
-      L.DomEvent.stop(e.originalEvent);
-    });
   }
   if(pts.length>=3) boundaryPolygon=L.polygon(pts,{color:"#2563eb",weight:2,fillColor:"#3b82f6",fillOpacity:.15,interactive:false}).addTo(map);
   boundaryGeometry();
