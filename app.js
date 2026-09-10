@@ -1,20 +1,17 @@
 const STORAGE_KEY = "propertygps-v1";
 let rawData = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-let data = rawData || {name:"My Property",waypoints:[],boundaries:[]};
+let data = rawData || {name:"My Property", waypoints:[], boundaries:[]};
 if(!Array.isArray(data.waypoints)) data.waypoints=[];
 if(!Array.isArray(data.boundaries)){
   data.boundaries=[];
   if(Array.isArray(rawData?.boundary) && rawData.boundary.length){
     data.boundaries.push({id:crypto.randomUUID(),name:rawData.boundaryName||"Boundary",points:rawData.boundary});
   }
-  delete data.boundary;
-  delete data.boundaryName;
 }
-data.boundaries=data.boundaries.filter(b=>b&&Array.isArray(b.points));
-data.boundaries.forEach(b=>{if(!b.id)b.id=crypto.randomUUID();if(!b.name)b.name="Boundary";});
 
 let currentPosition=null, userMarker=null, accuracyCircle=null, headingMarker=null;
-let boundaryLayers=[],boundaryDraft=[],boundaryDraftLine=null,waypointMarkers=[],waypointAccuracyCircles=[];
+let boundaryLayers=[],editingBoundary=[];
+let waypointMarkers=[],waypointAccuracyCircles=[];
 let pendingWaypoint=null,boundaryMode=false,pendingBoundaryName="";
 let gpsWatchId=null,latestRawPosition=null,gpsSamples=[],captureTimer=null,captureActive=false;
 let currentHeading=null,headingSource="",headingPermissionAsked=false;
@@ -25,22 +22,22 @@ const MAPTILER_KEY="BrG5QPYZu0l1ZQnYR2QJ";
 const map=L.map("map",{zoomControl:false,preferCanvas:true,maxZoom:22}).setView([-37.8136,144.9631],10);
 L.control.zoom({position:"bottomright"}).addTo(map);
 const mapAttribution="&copy; MapTiler &copy; OpenStreetMap contributors";
+const vicAerialAttribution='&copy; State of Victoria, Department of Transport and Planning — Vicmap Basemaps';
 const topoLayer=L.tileLayer(`https://api.maptiler.com/maps/outdoor-v4/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
 const satelliteLayer=L.tileLayer(`https://api.maptiler.com/maps/satellite-v4/{z}/{x}/{y}@2x.jpg?key=${MAPTILER_KEY}`,{tileSize:512,zoomOffset:-1,maxZoom:22,attribution:mapAttribution});
+// Victorian Government Vicmap Aerial: higher-quality local aerial mosaic where available.
+// This service is licensed; commercial use may require a Vicmap Basemaps licence.
+const vicAerialLayer=L.tileLayer.wms("https://base.maps.vic.gov.au/service",{
+  layers:"AERIAL_VG2020",format:"image/jpeg",transparent:false,version:"1.3.0",
+  crs:L.CRS.EPSG3857,opacity:1,maxZoom:22,attribution:vicAerialAttribution
+});
 topoLayer.addTo(map);
 let mapMode="topo";
-const mapModes=["topo","satellite"];
-const mapLabels={topo:"🗻 TOPO",satellite:"🛰️ SATELLITE"};
+const mapModes=["topo","satellite","vicAerial"];
+const mapLabels={topo:"🗻 TOPO",satellite:"🛰️ SATELLITE",vicAerial:"🇦🇺 VIC AERIAL"};
 const $=id=>document.getElementById(id);
 function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify(data));updateStats()}
-function updateStats(){
-  $("propertyName").value=data.name;
-  $('waypointCount').textContent=data.waypoints.length;
-  $('boundaryArea').textContent=`${data.boundaries.length}`;
-  const area=data.boundaries.reduce((sum,b)=>sum+polygonAreaM2(b.points),0);
-  const perimeter=data.boundaries.reduce((sum,b)=>sum+polygonPerimeterM(b.points),0);
-  $('boundaryPerimeter').textContent=`${(area/10000).toFixed(2)} ha • ${(perimeter/1000).toFixed(2)} km`;
-}
+function updateStats(){$("propertyName").value=data.name;$('waypointCount').textContent=data.waypoints.length;const area=data.boundaries.reduce((s,b)=>s+polygonAreaM2(b.points),0),perimeter=data.boundaries.reduce((s,b)=>s+polygonPerimeterM(b.points),0);$('boundaryArea').textContent=`${(area/10000).toFixed(2)} ha`;$('boundaryPerimeter').textContent=`${(perimeter/1000).toFixed(2)} km`;const countEl=$('boundaryCount');if(countEl)countEl.textContent=data.boundaries.length}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function setGPSStatus(t){$('status').textContent=t}
 function getBestAccuracy(){return gpsSamples.length ? Math.min(...gpsSamples.map(p=>Number(p.accuracy)||9999)) : (latestRawPosition?.accuracy || 9999)}
@@ -73,8 +70,8 @@ document.addEventListener("click",()=>{if(!headingPermissionAsked)requestCompass
 $('mapTypeBtn').onclick=()=>{
   const i=mapModes.indexOf(mapMode);
   const next=mapModes[(i+1)%mapModes.length];
-  [topoLayer,satelliteLayer].forEach(l=>{if(map.hasLayer(l))map.removeLayer(l)});
-  ({topo:topoLayer,satellite:satelliteLayer}[next]).addTo(map);
+  [topoLayer,satelliteLayer,vicAerialLayer].forEach(l=>{if(map.hasLayer(l))map.removeLayer(l)});
+  ({topo:topoLayer,satellite:satelliteLayer,vicAerial:vicAerialLayer}[next]).addTo(map);
   mapMode=next;
   $('mapTypeBtn').textContent=mapLabels[next];
 };
@@ -99,193 +96,31 @@ $('markBtn').onclick=captureWaypoint;
 $('cancelWaypoint').onclick=()=>{pendingWaypoint=null;captureActive=false;if(captureTimer)clearTimeout(captureTimer);captureTimer=null;$('waypointDialog').classList.add('hidden');$('hint').textContent="Tap MARK HERE to save your current GPS position."};
 $('saveWaypoint').onclick=()=>{if(!pendingWaypoint)return;data.waypoints.push({id:crypto.randomUUID(),name:$('waypointName').value.trim()||"Waypoint",lat:pendingWaypoint.lat,lng:pendingWaypoint.lng,accuracy:pendingWaypoint.accuracy,bestAccuracy:pendingWaypoint.bestAccuracy,sampleCount:pendingWaypoint.sampleCount,created:new Date().toISOString()});pendingWaypoint=null;$('waypointDialog').classList.add('hidden');save();renderWaypoints()};
 
-function boundaryLabelLayer(boundary){
-  const pts=boundary.points.map(p=>[p.lat,p.lng]);
-  if(!boundary.name||pts.length<2)return null;
-  let labelEdge=0,labelLength=-1;
-  for(let i=0;i<pts.length;i++){
-    const a=boundary.points[i],b=boundary.points[(i+1)%boundary.points.length],len=dist(a,b);
-    if(len>labelLength){labelLength=len;labelEdge=i}
-  }
-  const a=pts[labelEdge],b=pts[(labelEdge+1)%pts.length];
-  const mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];
-  return L.marker(mid,{
-    icon:L.divIcon({className:"",html:`<div class="boundaryEdgeLabel">${esc(boundary.name)}</div>`,iconSize:null,iconAnchor:[0,0]}),
-    interactive:false
-  }).addTo(map);
-}
-
-function renderBoundaryDraft(){
-  if(boundaryDraftLine){map.removeLayer(boundaryDraftLine);boundaryDraftLine=null}
-  if(boundaryDraft.length<2)return;
-  boundaryDraftLine=L.polyline(boundaryDraft.map(p=>[p.lat,p.lng]),{
-    color:"#60a5fa",weight:4,dashArray:"5 7",interactive:false
-  }).addTo(map);
-}
-
-function renderBoundaries(){
-  boundaryLayers.forEach(layer=>{
-    layer.markers.forEach(m=>map.removeLayer(m));
-    if(layer.line)map.removeLayer(layer.line);
-    if(layer.polygon)map.removeLayer(layer.polygon);
-    if(layer.label)map.removeLayer(layer.label);
-  });
-  boundaryLayers=[];
-
-  data.boundaries.forEach(boundary=>{
-    const pts=boundary.points.map(p=>[p.lat,p.lng]);
-    const layer={markers:[],line:null,polygon:null,label:null};
-
-    boundary.points.forEach((p,i)=>{
-      const icon=L.divIcon({
-        className:"boundaryDragHandle",
-        html:"<span></span>",
-        iconSize:[24,24],
-        iconAnchor:[12,12]
-      });
-      const m=L.marker([p.lat,p.lng],{
-        icon,draggable:true,zIndexOffset:800
-      }).bindTooltip(`${esc(boundary.name)} — point ${i+1} — drag to move`,{direction:"top"}).addTo(map);
-
-      m.on('drag',e=>{
-        const ll=e.target.getLatLng();
-        boundary.points[i].lat=ll.lat;
-        boundary.points[i].lng=ll.lng;
-        const newPts=boundary.points.map(q=>[q.lat,q.lng]);
-        if(layer.line)layer.line.setLatLngs(newPts);
-        if(layer.polygon)layer.polygon.setLatLngs(newPts);
-        if(layer.label)map.removeLayer(layer.label);
-        layer.label=boundaryLabelLayer(boundary);
-        updateStats();
-      });
-      m.on('dragend',()=>{
-        save();
-        $('hint').textContent=`${boundary.name} point ${i+1} moved and saved.`;
-      });
-      layer.markers.push(m);
-    });
-
-    if(pts.length>=2){
-      layer.line=L.polyline(pts,{
-        color:"#2563eb",weight:5,dashArray:"8 6",
-        bubblingMouseEvents:false,interactive:false
-      }).addTo(map);
-    }
-    if(pts.length>=3){
-      layer.polygon=L.polygon(pts,{
-        color:"#2563eb",weight:2,fillColor:"#3b82f6",
-        fillOpacity:.15,interactive:false
-      }).addTo(map);
-    }
-    layer.label=boundaryLabelLayer(boundary);
-    boundaryLayers.push(layer);
-  });
-
-  renderBoundaryDraft();
-  updateStats();
-}
-
 $('boundaryBtn').onclick=()=>{
   if(boundaryMode){
-    boundaryMode=false;
-    $('boundaryBtn').textContent="⬡ BOUNDARY";
-    map.getContainer().style.cursor="";
-    if(boundaryDraft.length>=3){
-      $('boundaryName').value="";
-      $('boundaryDialog').classList.remove('hidden');
-      setTimeout(()=>$('boundaryName').focus(),50);
-    }else{
-      boundaryDraft=[];
-      renderBoundaries();
-      $('hint').textContent="Boundary needs at least 3 points.";
-    }
+    boundaryMode=false;$('boundaryBtn').textContent="⬡ BOUNDARY";map.getContainer().style.cursor="";
+    if(editingBoundary.length>=3){
+      $('boundaryName').value="";$('boundaryDialog').classList.remove('hidden');setTimeout(()=>$('boundaryName').focus(),50);
+    }else{editingBoundary=[];renderBoundaries();$('hint').textContent="Boundary needs at least 3 points."}
   }else{
-    boundaryDraft=[];
-    boundaryMode=true;
-    $('boundaryBtn').textContent="✓ FINISH BOUNDARY";
-    $('hint').textContent="Tap the map to add points for a new boundary. Existing boundaries will stay on the map.";
-    map.getContainer().style.cursor="crosshair";
-    renderBoundaries();
+    editingBoundary=[];boundaryMode=true;$('boundaryBtn').textContent="✓ FINISH BOUNDARY";$('hint').textContent="Tap the map to add boundary points. Tap FINISH when done.";map.getContainer().style.cursor="crosshair";renderBoundaries();
   }
 };
-
-map.on('click',e=>{
-  if(!boundaryMode)return;
-  boundaryDraft.push({lat:e.latlng.lat,lng:e.latlng.lng});
-  renderBoundaries();
-});
-
-$('cancelBoundary').onclick=()=>{
-  boundaryDraft=[];
-  boundaryMode=false;
-  $('boundaryBtn').textContent="⬡ BOUNDARY";
-  map.getContainer().style.cursor="";
-  $('boundaryDialog').classList.add('hidden');
-  renderBoundaries();
-  $('hint').textContent="New boundary cancelled. Existing boundaries were kept.";
-};
-
+map.on('click',e=>{if(!boundaryMode)return;editingBoundary.push({lat:e.latlng.lat,lng:e.latlng.lng});renderBoundaries()});
+$('cancelBoundary').onclick=()=>{editingBoundary=[];$('boundaryDialog').classList.add('hidden');renderBoundaries();$('hint').textContent="Boundary creation cancelled."};
 $('saveBoundary').onclick=()=>{
-  if(boundaryDraft.length<3){
-    $('boundaryDialog').classList.add('hidden');
-    boundaryDraft=[];
-    renderBoundaries();
-    return;
-  }
   const name=$('boundaryName').value.trim()||`Boundary ${data.boundaries.length+1}`;
-  data.boundaries.push({
-    id:crypto.randomUUID(),
-    name,
-    points:boundaryDraft.map(p=>({lat:p.lat,lng:p.lng}))
-  });
-  boundaryDraft=[];
-  $('boundaryDialog').classList.add('hidden');
-  save();
-  renderBoundaries();
-  $('hint').textContent=`Boundary “${name}” saved. You now have ${data.boundaries.length} boundaries on the map.`;
+  data.boundaries.push({id:crypto.randomUUID(),name,points:editingBoundary.map(p=>({lat:p.lat,lng:p.lng}))});
+  editingBoundary=[];$('boundaryDialog').classList.add('hidden');save();renderBoundaries();$('hint').textContent=`Boundary “${name}” saved.`;
 };
-
-function distancePointToSegment(p,a,b){
-  const latScale=111320;
-  const lonScale=111320*Math.cos(p.lat*Math.PI/180);
-  const px=p.lng*lonScale,py=p.lat*latScale;
-  const ax=a.lng*lonScale,ay=a.lat*latScale;
-  const bx=b.lng*lonScale,by=b.lat*latScale;
-  const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
-  let t=den?((px-ax)*dx+(py-ay)*dy)/den:0;
-  t=Math.max(0,Math.min(1,t));
-  return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
-}
-
-function distanceToBoundaryMeters(position,boundary){
-  const pts=boundary.points;
-  if(!pts.length)return Infinity;
-  if(pts.length===1)return dist(position,pts[0]);
-  let best=Infinity;
-  for(let i=0;i<pts.length;i++){
-    best=Math.min(best,distancePointToSegment(position,pts[i],pts[(i+1)%pts.length]));
-  }
-  return best;
-}
-
 $('clearBoundaryBtn').onclick=()=>{
   if(!currentPosition){alert("Waiting for a GPS position.");return}
-  if(!data.boundaries.length){alert("There are no boundaries to clear.");return}
-
-  const position={lat:currentPosition.latitude,lng:currentPosition.longitude};
-  let nearest=null,nearestDistance=Infinity;
-  data.boundaries.forEach(boundary=>{
-    const d=distanceToBoundaryMeters(position,boundary);
-    if(d<nearestDistance){nearestDistance=d;nearest=boundary}
-  });
-  if(!nearest)return;
-
-  if(confirm(`Delete nearest boundary “${nearest.name}”?\\n\\nIt is approximately ${Math.round(nearestDistance)} m from your GPS position.`)){
-    data.boundaries=data.boundaries.filter(b=>b.id!==nearest.id);
-    save();
-    renderBoundaries();
-    $('hint').textContent=`Deleted nearest boundary “${nearest.name}”. ${data.boundaries.length} boundaries remain.`;
-  }
+  if(!data.boundaries.length){alert("There are no saved boundaries.");return}
+  let nearestIndex=-1,nearestDistance=Infinity;
+  data.boundaries.forEach((b,i)=>{const d=distancePointToBoundary(currentPosition.latitude,currentPosition.longitude,b.points);if(d<nearestDistance){nearestDistance=d;nearestIndex=i}});
+  if(nearestIndex<0)return;
+  const removed=data.boundaries[nearestIndex];
+  if(confirm(`Clear nearest boundary “${removed.name}” (${Math.round(nearestDistance)} m away)?`)){data.boundaries.splice(nearestIndex,1);save();renderBoundaries();$('hint').textContent=`Removed nearest boundary “${removed.name}” — ${Math.round(nearestDistance)} m away.`}
 };
 
 $('removeNearestBtn').onclick=()=>{if(!currentPosition){alert("Waiting for a GPS position.");return}if(!data.waypoints.length){alert("There are no waypoints to remove.");return}let idx=-1,dmin=Infinity;data.waypoints.forEach((w,i)=>{const d=dist({lat:currentPosition.latitude,lng:currentPosition.longitude},{lat:w.lat,lng:w.lng});if(d<dmin){dmin=d;idx=i}});if(idx<0)return;const removed=data.waypoints.splice(idx,1)[0];if(navigationTarget&&navigationTarget.id===removed.id)stopNavigation();save();renderWaypoints();$('hint').textContent=`Removed “${removed.name}” — ${Math.round(dmin)} m from your GPS position.`};
@@ -312,6 +147,57 @@ function renderWaypoints(){
     m.on('popupopen',e=>{const btn=e.popup.getElement().querySelector('.navPopupBtn');if(btn)btn.onclick=()=>startNavigation(w.id)});
     waypointMarkers.push(m);
   });
+}
+
+function distancePointToSegmentMeters(p,a,b){
+  const latScale=111320,lonScale=111320*Math.cos(p.lat*Math.PI/180);
+  const px=p.lng*lonScale,py=p.lat*latScale,ax=a.lng*lonScale,ay=a.lat*latScale,bx=b.lng*lonScale,by=b.lat*latScale;
+  const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
+  let t=den?((px-ax)*dx+(py-ay)*dy)/den:0;t=Math.max(0,Math.min(1,t));
+  return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
+}
+function distancePointToBoundary(lat,lng,points){
+  if(!points?.length)return Infinity;
+  if(points.length===1)return dist({lat,lng},points[0]);
+  let best=Infinity;const p={lat,lng};
+  for(let i=0;i<points.length;i++){const a=points[i],b=points[(i+1)%points.length];best=Math.min(best,distancePointToSegmentMeters(p,a,b))}
+  return best;
+}
+function removeBoundaryLayers(){
+  boundaryLayers.forEach(group=>{
+    group.markers.forEach(m=>map.removeLayer(m));
+    if(group.line)map.removeLayer(group.line);
+    if(group.polygon)map.removeLayer(group.polygon);
+    if(group.label)map.removeLayer(group.label);
+  });
+  boundaryLayers=[];
+}
+function renderOneBoundary(boundary,index){
+  const pts=boundary.points.map(p=>[p.lat,p.lng]);const group={markers:[],line:null,polygon:null,label:null};
+  boundary.points.forEach((p,i)=>{
+    const icon=L.divIcon({className:"boundaryDragHandle",html:"<span></span>",iconSize:[24,24],iconAnchor:[12,12]});
+    const m=L.marker([p.lat,p.lng],{icon,draggable:true,zIndexOffset:800}).bindTooltip(`${esc(boundary.name)} — point ${i+1}`,{direction:"top"}).addTo(map);
+    m.on('drag',e=>{const ll=e.target.getLatLng();boundary.points[i].lat=ll.lat;boundary.points[i].lng=ll.lng;renderBoundaries(false)});
+    m.on('dragend',()=>{save();$('hint').textContent=`Boundary “${boundary.name}” point ${i+1} moved and saved.`});
+    group.markers.push(m);
+  });
+  if(pts.length>=2)group.line=L.polyline(pts,{color:"#2563eb",weight:5,dashArray:"8 6",bubblingMouseEvents:false}).addTo(map);
+  if(pts.length>=3)group.polygon=L.polygon(pts,{color:"#2563eb",weight:2,fillColor:"#3b82f6",fillOpacity:.15,interactive:false}).addTo(map);
+  if(boundary.name&&pts.length>=2){
+    let edge=0,maxLen=-1;
+    for(let i=0;i<pts.length;i++){const len=dist(boundary.points[i],boundary.points[(i+1)%pts.length]);if(len>maxLen){maxLen=len;edge=i}}
+    const a=pts[edge],b=pts[(edge+1)%pts.length],mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];
+    group.label=L.marker(mid,{icon:L.divIcon({className:"",html:`<div class="boundaryEdgeLabel">${esc(boundary.name)}</div>`,iconSize:null,iconAnchor:[0,0]}),interactive:false}).addTo(map);
+  }
+  boundaryLayers.push(group);
+}
+function renderBoundaries(){
+  removeBoundaryLayers();
+  data.boundaries.forEach((b,i)=>renderOneBoundary(b,i));
+  if(editingBoundary.length){
+    const temp={name:"New boundary",points:editingBoundary};renderOneBoundary(temp,-1);
+  }
+  updateStats();
 }
 
 function startNavigation(id){const w=data.waypoints.find(x=>x.id===id);if(!w)return;navigationTarget=w;$('navTarget').textContent=w.name; $('navigationPanel').classList.remove('hidden');if(navigationLine)map.removeLayer(navigationLine);navigationLine=L.polyline([], {color:"#f59e0b",weight:5,dashArray:"10 8"}).addTo(map);$('hint').textContent=`Navigate to “${w.name}”. Use the compass heading and turn guidance.`;updateNavigation();map.closePopup()}

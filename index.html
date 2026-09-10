@@ -48,8 +48,9 @@
 
     <div class="stats">
       <div><span>Waypoints</span><strong id="waypointCount">0</strong></div>
-      <div><span>Boundaries</span><strong id="boundaryArea">0</strong></div>
-      <div><span>Total area • perimeter</span><strong id="boundaryPerimeter">0 ha • 0 km</strong></div>
+      <div><span>Boundaries</span><strong id="boundaryCount">0</strong></div>
+      <div><span>Total Area</span><strong id="boundaryArea">0 ha</strong></div>
+      <div><span>Perimeter</span><strong id="boundaryPerimeter">0 km</strong></div>
     </div>
 
     <div class="actions">
@@ -81,7 +82,7 @@
   <div id="boundaryDialog" class="dialog hidden">
     <div class="dialogCard">
       <h2>Name boundary</h2>
-      <div class="captureInfo">Give this boundary a name. The name will be displayed along its edges on the map.</div>
+      <div class="captureInfo">Give this boundary a name. The name will be displayed along its longest edge on the map.</div>
       <input id="boundaryName" placeholder="e.g. Main Paddock, North Block" autocomplete="off">
       <div class="dialogActions">
         <button id="cancelBoundary" class="secondary">Cancel</button>
