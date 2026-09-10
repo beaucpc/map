@@ -1,4 +1,4 @@
-PropertyGPS
+PropertyGPS v15
 
 Features:
 - Continuous high-accuracy GPS with averaged MARK HERE capture
@@ -7,7 +7,10 @@ Features:
 - Drag/edit boundary points
 - CLEAR NEAREST BOUNDARY removes only the boundary closest to the live GPS position
 - MapTiler Topo and Satellite maps
-- Victorian Government Vicmap Aerial layer for higher-resolution local aerial imagery where available
+- Victorian Government Vicmap Aerial layer for high-resolution local aerial imagery where available
+- GPS locator button activates live map-follow mode; dragging the map stops follow mode
+- MARK HERE automatically places a waypoint after the 3-second GPS averaging capture; no naming/cancel dialog
+- Waypoints can be held and dragged to reposition them
 - Offline MapTiler topo/satellite area saving
 
 IMPORTANT VICMAP AERIAL LICENSING:

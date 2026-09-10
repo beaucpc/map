@@ -19,7 +19,7 @@
       <div class="brand">PropertyGPS</div>
       <div id="status" class="status">GPS not started</div>
     </div>
-    <button id="locateBtn" class="iconBtn" title="Centre on me">◎</button>
+    <button id="locateBtn" class="iconBtn" title="Follow my GPS position">◎</button>
   </header>
 
   <main>
@@ -41,11 +41,6 @@
   </main>
 
   <section class="bottomPanel">
-    <div class="propertyRow">
-      <input id="propertyName" value="My Property" aria-label="Property name">
-      <button id="saveNameBtn" class="smallBtn">Save</button>
-    </div>
-
     <div class="stats">
       <div><span>Waypoints</span><strong id="waypointCount">0</strong></div>
       <div><span>Boundaries</span><strong id="boundaryCount">0</strong></div>
@@ -66,18 +61,6 @@
 
     <div id="hint" class="hint">GPS runs continuously. MARK HERE averages fixes for 3 seconds for a more stable waypoint.</div>
   </section>
-
-  <div id="waypointDialog" class="dialog hidden">
-    <div class="dialogCard">
-      <h2>Name waypoint</h2>
-      <div id="captureInfo" class="captureInfo"></div>
-      <input id="waypointName" placeholder="e.g. Gate 1, Dam, Shed" autocomplete="off">
-      <div class="dialogActions">
-        <button id="cancelWaypoint" class="secondary">Cancel</button>
-        <button id="saveWaypoint" class="primary">Save</button>
-      </div>
-    </div>
-  </div>
 
   <div id="boundaryDialog" class="dialog hidden">
     <div class="dialogCard">
