@@ -142,9 +142,26 @@ function renderWaypoints(){
     const accuracy=Math.max(1,Number(w.accuracy)||0);
     const accuracyCircle=L.circle([w.lat,w.lng], {radius:accuracy,color:"#2563eb",weight:1.5,fillColor:"#3b82f6",fillOpacity:.05,interactive:false}).addTo(map);
     waypointAccuracyCircles.push(accuracyCircle);
-    const m=L.circleMarker([w.lat,w.lng],{radius:5,color:"#fff",weight:2,fillColor:"#2563eb",fillOpacity:1}).addTo(map);
-    m.bindPopup(`<b>${esc(w.name)}</b><br>${w.lat.toFixed(6)}, ${w.lng.toFixed(6)}<br>Accuracy ±${Math.round(accuracy)} m<button class="navPopupBtn" data-nav-id="${esc(w.id)}">🧭 NAVIGATE HERE</button>`);
+    const icon=L.divIcon({className:"waypointDragHandle",html:"<span></span>",iconSize:[22,22],iconAnchor:[11,11]});
+    const m=L.marker([w.lat,w.lng],{icon,draggable:true,zIndexOffset:900}).addTo(map);
+    m.bindTooltip("Hold and drag to move",{direction:"top",opacity:.9});
+    m.bindPopup(`<b>${esc(w.name)}</b><br><span class="waypointCoords">${w.lat.toFixed(6)}, ${w.lng.toFixed(6)}</span><br>Accuracy ±${Math.round(accuracy)} m<button class="navPopupBtn" data-nav-id="${esc(w.id)}">🧭 NAVIGATE HERE</button>`);
     m.on('popupopen',e=>{const btn=e.popup.getElement().querySelector('.navPopupBtn');if(btn)btn.onclick=()=>startNavigation(w.id)});
+    m.on('drag',e=>{
+      const ll=e.target.getLatLng();
+      w.lat=ll.lat; w.lng=ll.lng;
+      accuracyCircle.setLatLng(ll);
+      if(navigationTarget&&navigationTarget.id===w.id){navigationTarget=w;updateNavigation()}
+    });
+    m.on('dragstart',()=>{
+      $('hint').textContent=`Moving “${w.name}” — drag to the new position.`;
+    });
+    m.on('dragend',()=>{
+      save();
+      const ll=m.getLatLng();
+      m.setPopupContent(`<b>${esc(w.name)}</b><br><span class="waypointCoords">${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}</span><br>Accuracy ±${Math.round(accuracy)} m<button class="navPopupBtn" data-nav-id="${esc(w.id)}">🧭 NAVIGATE HERE</button>`);
+      $('hint').textContent=`Waypoint “${w.name}” moved and saved.`;
+    });
     waypointMarkers.push(m);
   });
 }
