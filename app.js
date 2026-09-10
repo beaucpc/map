@@ -37,9 +37,21 @@ function startGPS(){if(!navigator.geolocation){setGPSStatus("GPS unavailable");r
 startGPS();
 function centreOnUser(){if(!currentPosition){alert("Waiting for a GPS position.");return}map.setView([currentPosition.latitude,currentPosition.longitude],Math.max(map.getZoom(),17))}$('locateBtn').onclick=centreOnUser;
 
-async function requestCompass(){if(typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function"){try{const p=await DeviceOrientationEvent.requestPermission();if(p!=="granted"){alert("Compass permission was not granted.");return}}catch(e){return}}window.addEventListener("deviceorientationabsolute",handleOrientation,true);window.addEventListener("deviceorientation",handleOrientation,true);headingPermissionAsked=true;$('compassBtn').textContent="🧭 COMPASS ON";$('hint').textContent="Compass active. Keep the phone upright for the most reliable heading."}
-function handleOrientation(e){let h=null;if(typeof e.webkitCompassHeading==="number"&&e.webkitCompassHeading>=0)h=e.webkitCompassHeading;else if(typeof e.alpha==="number")h=(360-e.alpha)%360; if(h===null)return;currentHeading=h;headingSource=e.webkitCompassHeading!==undefined?"compass":"device orientation";if(currentPosition)updateHeadingMarker([currentPosition.latitude,currentPosition.longitude]);updateNavigation()}
-$('compassBtn').onclick=requestCompass;
+async function requestCompass(){
+  if(headingPermissionAsked)return;
+  if(typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function"){
+    try{const p=await DeviceOrientationEvent.requestPermission();if(p!=="granted"){headingPermissionAsked=true;$('hint').textContent="Compass permission is required for live heading.";return}}catch(e){return}
+  }
+  window.addEventListener("deviceorientationabsolute",handleOrientation,true);
+  window.addEventListener("deviceorientation",handleOrientation,true);
+  headingPermissionAsked=true;
+  $('hint').textContent="Compass active. Keep the phone upright for the most reliable heading.";
+}
+function handleOrientation(e){let h=null;if(typeof e.webkitCompassHeading==="number"&&e.webkitCompassHeading>=0)h=e.webkitCompassHeading;else if(typeof e.alpha==="number")h=(360-e.alpha)%360;if(h===null)return;currentHeading=h;headingSource=e.webkitCompassHeading!==undefined?"compass":"device orientation";if(currentPosition)updateHeadingMarker([currentPosition.latitude,currentPosition.longitude]);updateNavigation()}
+// Compass is always enabled. iOS requires permission from a user gesture, so the first
+// interaction with the app requests it automatically; there is no on/off control.
+requestCompass().catch(()=>{});
+document.addEventListener("click",()=>{if(!headingPermissionAsked)requestCompass().catch(()=>{})},{once:true});
 
 $('mapTypeBtn').onclick=()=>{
   const i=mapModes.indexOf(mapMode);
