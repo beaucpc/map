@@ -21,3 +21,5 @@ main{position:relative;flex:1;min-height:0}#map{height:100%;width:100%}
 @media(max-height:700px){.topbar{height:72px;min-height:72px}.bottomPanel{padding-top:7px}.stats{padding-bottom:6px}.actions button{min-height:43px}.secondaryActions button{min-height:34px}.hint{padding-top:5px}}
 
 #offlineBtn{font-size:10px;white-space:nowrap}.leaflet-marker-icon{touch-action:none}
+
+.boundaryEdgeLabel{pointer-events:none}.leaflet-interactive{touch-action:none}

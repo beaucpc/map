@@ -114,7 +114,66 @@ function renderWaypoints(){
   });
 }
 
-function renderBoundary(){boundaryMarkers.forEach(m=>map.removeLayer(m));boundaryMarkers=[];boundaryEdgeLabels.forEach(m=>map.removeLayer(m));boundaryEdgeLabels=[];if(boundaryLine)map.removeLayer(boundaryLine);if(boundaryPolygon)map.removeLayer(boundaryPolygon);const pts=data.boundary.map(p=>[p.lat,p.lng]);data.boundary.forEach((p,i)=>{const m=L.circleMarker([p.lat,p.lng],{radius:6,color:"#2563eb",fillColor:"#60a5fa",fillOpacity:1}).bindTooltip(`Boundary ${i+1}`,{direction:"top"}).addTo(map);boundaryMarkers.push(m)});if(pts.length>=2){boundaryLine=L.polyline(pts,{color:"#2563eb",weight:4,dashArray:"8 6"}).addTo(map)}if(pts.length>=3){boundaryPolygon=L.polygon(pts,{color:"#2563eb",weight:2,fillColor:"#3b82f6",fillOpacity:.15}).addTo(map)}if(data.boundaryName&&pts.length>=2){let labelEdge=0,labelLength=-1;for(let i=0;i<pts.length;i++){const a=data.boundary[i],b=data.boundary[(i+1)%data.boundary.length],len=dist(a,b);if(len>labelLength){labelLength=len;labelEdge=i}}const a=pts[labelEdge],b=pts[(labelEdge+1)%pts.length],mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];const label=L.marker(mid,{icon:L.divIcon({className:"",html:`<div class="boundaryEdgeLabel">${esc(data.boundaryName)}</div>`,iconSize:null,iconAnchor:[0,0]}),interactive:false}).addTo(map);boundaryEdgeLabels.push(label)}updateStats()}
+function boundaryGeometry(){
+  const pts=data.boundary.map(p=>[p.lat,p.lng]);
+  if(boundaryLine) boundaryLine.setLatLngs(pts);
+  if(boundaryPolygon) boundaryPolygon.setLatLngs(pts);
+  boundaryEdgeLabels.forEach(m=>map.removeLayer(m)); boundaryEdgeLabels=[];
+  if(data.boundaryName&&pts.length>=2){
+    let labelEdge=0,labelLength=-1;
+    for(let i=0;i<pts.length;i++){
+      const a=data.boundary[i],b=data.boundary[(i+1)%data.boundary.length],len=dist(a,b);
+      if(len>labelLength){labelLength=len;labelEdge=i}
+    }
+    const a=pts[labelEdge],b=pts[(labelEdge+1)%pts.length],mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];
+    const label=L.marker(mid,{icon:L.divIcon({className:"",html:`<div class="boundaryEdgeLabel">${esc(data.boundaryName)}</div>`,iconSize:null,iconAnchor:[0,0]}),interactive:false}).addTo(map);
+    boundaryEdgeLabels.push(label);
+  }
+  updateStats();
+}
+function renderBoundary(){
+  boundaryMarkers.forEach(m=>map.removeLayer(m)); boundaryMarkers=[];
+  boundaryEdgeLabels.forEach(m=>map.removeLayer(m)); boundaryEdgeLabels=[];
+  if(boundaryLine)map.removeLayer(boundaryLine); boundaryLine=null;
+  if(boundaryPolygon)map.removeLayer(boundaryPolygon); boundaryPolygon=null;
+  const pts=data.boundary.map(p=>[p.lat,p.lng]);
+  data.boundary.forEach((p,i)=>{
+    const m=L.circleMarker([p.lat,p.lng],{radius:7,color:"#fff",weight:2,fillColor:"#2563eb",fillOpacity:1,draggable:true}).bindTooltip(`Boundary ${i+1} — drag to move`,{direction:"top"}).addTo(map);
+    m.on('drag',e=>{
+      const ll=e.target.getLatLng(); data.boundary[i].lat=ll.lat; data.boundary[i].lng=ll.lng;
+      boundaryGeometry();
+    });
+    m.on('dragend',()=>{save();$('hint').textContent=`Boundary point ${i+1} moved and saved.`;});
+    boundaryMarkers.push(m);
+  });
+  if(pts.length>=2){
+    boundaryLine=L.polyline(pts,{color:"#2563eb",weight:5,dashArray:"8 6",bubblingMouseEvents:false}).addTo(map);
+    boundaryLine.on('dblclick',e=>{
+      const index=nearestBoundarySegmentIndex(e.latlng);
+      data.boundary.splice(index+1,0,{lat:e.latlng.lat,lng:e.latlng.lng});
+      save(); renderBoundary(); $('hint').textContent=`Added boundary point ${index+2}. Drag it to adjust the corner.`;
+      L.DomEvent.stop(e.originalEvent);
+    });
+  }
+  if(pts.length>=3) boundaryPolygon=L.polygon(pts,{color:"#2563eb",weight:2,fillColor:"#3b82f6",fillOpacity:.15,interactive:false}).addTo(map);
+  boundaryGeometry();
+}
+function nearestBoundarySegmentIndex(ll){
+  let best=0,bestD=Infinity;
+  for(let i=0;i<data.boundary.length;i++){
+    const a=data.boundary[i],b=data.boundary[(i+1)%data.boundary.length];
+    const d=distancePointToSegment(ll,a,b);
+    if(d<bestD){bestD=d;best=i;}
+  }
+  return best;
+}
+function distancePointToSegment(p,a,b){
+  const latScale=111320, lonScale=111320*Math.cos(p.lat*Math.PI/180);
+  const px= p.lng*lonScale, py=p.lat*latScale, ax=a.lng*lonScale, ay=a.lat*latScale, bx=b.lng*lonScale, by=b.lat*latScale;
+  const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
+  let t=den?((px-ax)*dx+(py-ay)*dy)/den:0; t=Math.max(0,Math.min(1,t));
+  return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
+}
 
 function startNavigation(id){const w=data.waypoints.find(x=>x.id===id);if(!w)return;navigationTarget=w;$('navTarget').textContent=w.name; $('navigationPanel').classList.remove('hidden');if(navigationLine)map.removeLayer(navigationLine);navigationLine=L.polyline([], {color:"#f59e0b",weight:5,dashArray:"10 8"}).addTo(map);$('hint').textContent=`Navigate to “${w.name}”. Use the compass heading and turn guidance.`;updateNavigation();map.closePopup()}
 function stopNavigation(){navigationTarget=null;if(navigationLine){map.removeLayer(navigationLine);navigationLine=null}$('navigationPanel').classList.add('hidden');$('hint').textContent="GPS runs continuously. MARK HERE averages fixes for 3 seconds for a more stable waypoint."}
