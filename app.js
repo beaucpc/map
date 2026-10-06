@@ -43,12 +43,30 @@ function updateGPSDisplay(pos){}
 function smoothMoveMarker(marker,from,to,duration=700){if(!from){marker.setLatLng(to);return}const start=performance.now();const step=now=>{const t=Math.min(1,(now-start)/duration),e=t*(2-t);marker.setLatLng([from[0]+(to[0]-from[0])*e,from[1]+(to[1]-from[1])*e]);if(t<1)requestAnimationFrame(step)};requestAnimationFrame(step)}
 function updateMapPosition(pos){const ll=[pos.latitude,pos.longitude];if(!userMarker){userMarker=L.circleMarker(ll,{radius:8,color:"#fff",weight:3,fillColor:"#3b82f6",fillOpacity:1}).addTo(map);lastRenderedLL=ll}else{smoothMoveMarker(userMarker,lastRenderedLL,ll,700);lastRenderedLL=ll}if(!accuracyCircle)accuracyCircle=L.circle(ll,{radius:pos.accuracy,color:"#3b82f6",weight:1,fillOpacity:.08}).addTo(map);else smoothMoveMarker(accuracyCircle,lastRenderedLL,ll,700),accuracyCircle.setRadius(pos.accuracy);updateHeadingMarker(ll)}
 function updateHeadingMarker(ll){if(currentHeading===null)return;const html=`<div class="headingArrow" style="transform:rotate(${currentHeading}deg)"></div>`;const icon=L.divIcon({className:"headingMarker",html,iconSize:[44,44],iconAnchor:[22,22]});if(!headingMarker)headingMarker=L.marker(ll,{icon,interactive:false,zIndexOffset:1000}).addTo(map);else{headingMarker.setLatLng(ll);headingMarker.setIcon(icon)}}
-function handleGPSPosition(pos){latestRawPosition=pos.coords;currentPosition=pos.coords;updateMapPosition(pos.coords);if(followUser)map.panTo([pos.coords.latitude,pos.coords.longitude],{animate:true,duration:0.45,easeLinearity:1,noMoveStart:true});const a=Number(pos.coords.accuracy)||9999;setGPSStatus(`GPS ±${Math.round(a)} m`);updateGPSDisplay(pos.coords);updateNavigation()}
+function handleGPSPosition(pos){latestRawPosition=pos.coords;currentPosition=pos.coords;updateMapPosition(pos.coords);if(followUser)startSmoothFollow([pos.coords.latitude,pos.coords.longitude]);const a=Number(pos.coords.accuracy)||9999;setGPSStatus(`GPS ±${Math.round(a)} m`);updateGPSDisplay(pos.coords);updateNavigation()}
 function startGPS(){if(!navigator.geolocation){setGPSStatus("GPS unavailable");return}if(gpsWatchId!==null)navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=navigator.geolocation.watchPosition(handleGPSPosition,err=>{setGPSStatus(err.code===1?"Location permission denied":"Waiting for GPS…")},{enableHighAccuracy:true,maximumAge:0,timeout:10000})}
 startGPS();
-function centreOnUser(){if(!currentPosition){alert("Waiting for a GPS position.");return}followUser=true;map.setView([currentPosition.latitude,currentPosition.longitude],Math.max(map.getZoom(),17),{animate:true});$('hint').textContent="Map following your GPS position. Drag the map to stop following."}
-$('locateBtn').onclick=centreOnUser;
-map.on('dragstart',()=>{if(followUser){followUser=false;$('hint').textContent="Map follow stopped. Press the GPS locator to follow again."}});
+let followAnimationFrame=null,followTarget=null,followFrom=null,followStart=0;
+function startSmoothFollow(ll){
+  followTarget=ll;
+  if(!followUser)return;
+  if(followAnimationFrame)return;
+  followFrom=map.getCenter();
+  followStart=performance.now();
+  const animate=now=>{
+    if(!followUser||!followTarget){followAnimationFrame=null;return}
+    const t=Math.min(1,(now-followStart)/650),e=t*(2-t);
+    const a=followFrom,b=L.latLng(followTarget);
+    const c=L.latLng(a.lat+(b.lat-a.lat)*e,a.lng+(b.lng-a.lng)*e);
+    map.setView(c,map.getZoom(),{animate:false});
+    if(t<1){followAnimationFrame=requestAnimationFrame(animate)}
+    else {followAnimationFrame=null;const latest=L.latLng(followTarget);if(Math.abs(c.lat-latest.lat)>0.000001||Math.abs(c.lng-latest.lng)>0.000001)startSmoothFollow([latest.lat,latest.lng])}
+  };
+  followAnimationFrame=requestAnimationFrame(animate);
+}
+function centreOnUser(){if(!currentPosition){alert("Waiting for a GPS position.");return}followUser=true;const ll=[currentPosition.latitude,currentPosition.longitude];map.setView(ll,Math.max(map.getZoom(),17),{animate:true,duration:.5});followTarget=ll;followFrom=map.getCenter();followStart=performance.now();startSmoothFollow(ll);$('hint').textContent="Map following your GPS position. Drag the map to stop following."}
+$('locateBtn').addEventListener("click",e=>{e.preventDefault();e.stopPropagation();centreOnUser()});
+map.on('dragstart',()=>{if(followUser){followUser=false;followTarget=null;if(followAnimationFrame)cancelAnimationFrame(followAnimationFrame);followAnimationFrame=null;$('hint').textContent="Map follow stopped. Press the GPS locator to follow again."}});
 
 
 async function requestCompass(){
@@ -224,7 +242,7 @@ function setBoundaryVisibility(visible){
 
 $('toggleBoundariesBtn').onclick=()=>setBoundaryVisibility(!boundaryVisible);
 
-$('boundaryBtn').onclick=()=>{
+$('boundaryBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();
   if(boundaryMode){
     boundaryMode=false;
     $('boundaryBtn').textContent='⬡ BOUNDARY';
@@ -248,7 +266,7 @@ $('boundaryBtn').onclick=()=>{
     renderBoundaries();
     $('hint').textContent='Tap the map to add boundary points. Tap FINISH when done.';
   }
-};
+});
 
 map.on('click',e=>{
   if(!boundaryMode)return;
