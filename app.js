@@ -10,7 +10,7 @@ if(!Array.isArray(data.boundaries)){
 }
 
 let currentPosition=null, userMarker=null, accuracyCircle=null, headingMarker=null, followUser=false;
-let boundaryLayers=[],editingBoundary=[];
+let boundaryLayers=[],editingBoundary=[],boundaryVisible=true;
 let waypointMarkers=[],waypointAccuracyCircles=[];
 let pendingWaypoint=null,boundaryMode=false,pendingBoundaryName="";
 let gpsWatchId=null,latestRawPosition=null;
@@ -43,7 +43,7 @@ function updateGPSDisplay(pos){}
 function smoothMoveMarker(marker,from,to,duration=700){if(!from){marker.setLatLng(to);return}const start=performance.now();const step=now=>{const t=Math.min(1,(now-start)/duration),e=t*(2-t);marker.setLatLng([from[0]+(to[0]-from[0])*e,from[1]+(to[1]-from[1])*e]);if(t<1)requestAnimationFrame(step)};requestAnimationFrame(step)}
 function updateMapPosition(pos){const ll=[pos.latitude,pos.longitude];if(!userMarker){userMarker=L.circleMarker(ll,{radius:8,color:"#fff",weight:3,fillColor:"#3b82f6",fillOpacity:1}).addTo(map);lastRenderedLL=ll}else{smoothMoveMarker(userMarker,lastRenderedLL,ll,700);lastRenderedLL=ll}if(!accuracyCircle)accuracyCircle=L.circle(ll,{radius:pos.accuracy,color:"#3b82f6",weight:1,fillOpacity:.08}).addTo(map);else smoothMoveMarker(accuracyCircle,lastRenderedLL,ll,700),accuracyCircle.setRadius(pos.accuracy);updateHeadingMarker(ll)}
 function updateHeadingMarker(ll){if(currentHeading===null)return;const html=`<div class="headingArrow" style="transform:rotate(${currentHeading}deg)"></div>`;const icon=L.divIcon({className:"headingMarker",html,iconSize:[44,44],iconAnchor:[22,22]});if(!headingMarker)headingMarker=L.marker(ll,{icon,interactive:false,zIndexOffset:1000}).addTo(map);else{headingMarker.setLatLng(ll);headingMarker.setIcon(icon)}}
-function handleGPSPosition(pos){latestRawPosition=pos.coords;currentPosition=pos.coords;updateMapPosition(pos.coords);if(followUser)map.setView([pos.coords.latitude,pos.coords.longitude],map.getZoom(),{animate:false});const a=Number(pos.coords.accuracy)||9999;setGPSStatus(`GPS ±${Math.round(a)} m`);updateGPSDisplay(pos.coords);updateNavigation()}
+function handleGPSPosition(pos){latestRawPosition=pos.coords;currentPosition=pos.coords;updateMapPosition(pos.coords);if(followUser)map.panTo([pos.coords.latitude,pos.coords.longitude],{animate:true,duration:0.45,easeLinearity:1,noMoveStart:true});const a=Number(pos.coords.accuracy)||9999;setGPSStatus(`GPS ±${Math.round(a)} m`);updateGPSDisplay(pos.coords);updateNavigation()}
 function startGPS(){if(!navigator.geolocation){setGPSStatus("GPS unavailable");return}if(gpsWatchId!==null)navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=navigator.geolocation.watchPosition(handleGPSPosition,err=>{setGPSStatus(err.code===1?"Location permission denied":"Waiting for GPS…")},{enableHighAccuracy:true,maximumAge:0,timeout:10000})}
 startGPS();
 function centreOnUser(){if(!currentPosition){alert("Waiting for a GPS position.");return}followUser=true;map.setView([currentPosition.latitude,currentPosition.longitude],Math.max(map.getZoom(),17),{animate:true});$('hint').textContent="Map following your GPS position. Drag the map to stop following."}
@@ -196,6 +196,7 @@ function renderOneBoundary(boundary,index){
 }
 function renderBoundaries(){
   removeBoundaryLayers();
+  if(!boundaryVisible){updateStats();return}
   data.boundaries.forEach((b,i)=>renderOneBoundary(b,i));
   if(editingBoundary.length){
     const temp={name:"New boundary",points:editingBoundary};renderOneBoundary(temp,-1);
@@ -214,5 +215,76 @@ function updateNavigation(){if(!navigationTarget||!currentPosition)return;const 
 function polygonAreaM2(points){if(points.length<3)return 0;const R=6378137,lat0=points.reduce((s,p)=>s+p.lat,0)/points.length*Math.PI/180,xy=points.map(p=>[R*p.lng*Math.PI/180*Math.cos(lat0),R*p.lat*Math.PI/180]);let a=0;for(let i=0;i<xy.length;i++){const j=(i+1)%xy.length;a+=xy[i][0]*xy[j][1]-xy[j][0]*xy[i][1]}return Math.abs(a/2)}
 function dist(a,b){const R=6371008.8,p1=a.lat*Math.PI/180,p2=b.lat*Math.PI/180,dp=(b.lat-a.lat)*Math.PI/180,dl=(b.lng-a.lng)*Math.PI/180,x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))}
 function polygonPerimeterM(points){if(points.length<2)return 0;let s=0;for(let i=0;i<points.length;i++)s+=dist(points[i],points[(i+1)%points.length]);return s}
+function setBoundaryVisibility(visible){
+  boundaryVisible=visible;
+  renderBoundaries();
+  $('toggleBoundariesBtn').textContent=boundaryVisible?'◉ BOUNDARIES ON':'○ BOUNDARIES OFF';
+  $('hint').textContent=boundaryVisible?'Boundaries are visible.':'Boundaries are hidden from the map.';
+}
+
+$('toggleBoundariesBtn').onclick=()=>setBoundaryVisibility(!boundaryVisible);
+
+$('boundaryBtn').onclick=()=>{
+  if(boundaryMode){
+    boundaryMode=false;
+    $('boundaryBtn').textContent='⬡ BOUNDARY';
+    map.getContainer().style.cursor='';
+    if(editingBoundary.length>=3){
+      $('boundaryName').value='';
+      $('boundaryDialog').classList.remove('hidden');
+      setTimeout(()=>$('boundaryName').focus(),50);
+    }else{
+      editingBoundary=[];
+      renderBoundaries();
+      $('hint').textContent='Boundary needs at least 3 points.';
+    }
+  }else{
+    editingBoundary=[];
+    boundaryMode=true;
+    boundaryVisible=true;
+    $('toggleBoundariesBtn').textContent='◉ BOUNDARIES ON';
+    $('boundaryBtn').textContent='✓ FINISH BOUNDARY';
+    map.getContainer().style.cursor='crosshair';
+    renderBoundaries();
+    $('hint').textContent='Tap the map to add boundary points. Tap FINISH when done.';
+  }
+};
+
+map.on('click',e=>{
+  if(!boundaryMode)return;
+  editingBoundary.push({lat:e.latlng.lat,lng:e.latlng.lng});
+  renderBoundaries();
+});
+
+$('saveBoundary').onclick=()=>{
+  const name=$('boundaryName').value.trim()||`Boundary ${data.boundaries.length+1}`;
+  if(editingBoundary.length<3){$('boundaryDialog').classList.add('hidden');return}
+  data.boundaries.push({id:crypto.randomUUID(),name,points:editingBoundary.map(p=>({lat:p.lat,lng:p.lng}))});
+  editingBoundary=[];
+  $('boundaryDialog').classList.add('hidden');
+  save();renderBoundaries();
+  $('hint').textContent=`Boundary “${name}” saved.`;
+};
+$('cancelBoundary').onclick=()=>{
+  editingBoundary=[];
+  $('boundaryDialog').classList.add('hidden');
+  renderBoundaries();
+  $('hint').textContent='Boundary creation cancelled.';
+};
+
+$('clearBoundaryBtn').onclick=()=>{
+  if(!currentPosition){alert('Waiting for a GPS position.');return}
+  if(!data.boundaries.length){alert('There are no boundaries to clear.');return}
+  let idx=-1,best=Infinity;
+  data.boundaries.forEach((b,i)=>{
+    const d=distancePointToBoundary(currentPosition.latitude,currentPosition.longitude,b.points);
+    if(d<best){best=d;idx=i}
+  });
+  if(idx<0)return;
+  const removed=data.boundaries.splice(idx,1)[0];
+  save();renderBoundaries();
+  $('hint').textContent=`Removed nearest boundary “${removed.name}” — ${Math.round(best)} m from your GPS position.`;
+};
+
 updateStats();renderWaypoints();renderBoundaries();
 if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
