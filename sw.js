@@ -1,4 +1,4 @@
-const CACHE_NAME="propertygps-v21";
+const CACHE_NAME="propertygps-v22";
 const APP_ASSETS=["./","./index.html","./styles.css","./app.js","./manifest.webmanifest","./icon.svg"];
 const MAP_CACHE="propertygps-map-tiles-v4";
 self.addEventListener("install",e=>{

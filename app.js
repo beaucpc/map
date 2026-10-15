@@ -16,6 +16,7 @@ let pendingWaypoint=null,boundaryMode=false,pendingBoundaryName="";
 let gpsWatchId=null,latestRawPosition=null;
 let currentHeading=null,headingSource="",headingPermissionAsked=false;
 let navigationTarget=null,navigationLine=null,animationFrame=null,lastRenderedLL=null,targetRenderedLL=null;
+const markerAnimations=new WeakMap();
 
 const MAPTILER_KEY="BrG5QPYZu0l1ZQnYR2QJ";
 const map=L.map("map",{zoomControl:false,preferCanvas:true,maxZoom:22}).setView([-37.8136,144.9631],10);
@@ -40,31 +41,43 @@ function updateStats(){$('waypointCount').textContent=data.waypoints.length;cons
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function setGPSStatus(t){$('status').textContent=t}
 function updateGPSDisplay(pos){}
-function smoothMoveMarker(marker,from,to,duration=700){if(!from){marker.setLatLng(to);return}const start=performance.now();const step=now=>{const t=Math.min(1,(now-start)/duration),e=t*(2-t);marker.setLatLng([from[0]+(to[0]-from[0])*e,from[1]+(to[1]-from[1])*e]);if(t<1)requestAnimationFrame(step)};requestAnimationFrame(step)}
-function updateMapPosition(pos){const ll=[pos.latitude,pos.longitude];if(!userMarker){userMarker=L.circleMarker(ll,{radius:8,color:"#fff",weight:3,fillColor:"#3b82f6",fillOpacity:1}).addTo(map);lastRenderedLL=ll}else{smoothMoveMarker(userMarker,lastRenderedLL,ll,700);lastRenderedLL=ll}if(!accuracyCircle)accuracyCircle=L.circle(ll,{radius:pos.accuracy,color:"#3b82f6",weight:1,fillOpacity:.08}).addTo(map);else smoothMoveMarker(accuracyCircle,lastRenderedLL,ll,700),accuracyCircle.setRadius(pos.accuracy);updateHeadingMarker(ll)}
+function smoothMoveMarker(marker,from,to,duration=850){
+  const existing=markerAnimations.get(marker);if(existing)cancelAnimationFrame(existing);
+  const actual=marker.getLatLng();const startLL=[actual.lat,actual.lng];
+  const start=performance.now();
+  const step=now=>{const t=Math.min(1,(now-start)/duration),e=t*t*(3-2*t);marker.setLatLng([startLL[0]+(to[0]-startLL[0])*e,startLL[1]+(to[1]-startLL[1])*e]);if(t<1)markerAnimations.set(marker,requestAnimationFrame(step));else markerAnimations.delete(marker)};
+  markerAnimations.set(marker,requestAnimationFrame(step));
+}
+function updateMapPosition(pos){
+  const ll=[pos.latitude,pos.longitude];
+  if(!userMarker){userMarker=L.circleMarker(ll,{radius:8,color:"#fff",weight:3,fillColor:"#3b82f6",fillOpacity:1}).addTo(map)}else smoothMoveMarker(userMarker,null,ll,900);
+  if(!accuracyCircle)accuracyCircle=L.circle(ll,{radius:Math.max(0,Number(pos.accuracy)||0),color:"#3b82f6",weight:1,fillOpacity:.08}).addTo(map);
+  else {smoothMoveMarker(accuracyCircle,null,ll,900);accuracyCircle.setRadius(Math.max(0,Number(pos.accuracy)||0))}
+  lastRenderedLL=ll;updateHeadingMarker(ll)
+}
 function updateHeadingMarker(ll){if(currentHeading===null)return;const html=`<div class="headingArrow" style="transform:rotate(${currentHeading}deg)"></div>`;const icon=L.divIcon({className:"headingMarker",html,iconSize:[44,44],iconAnchor:[22,22]});if(!headingMarker)headingMarker=L.marker(ll,{icon,interactive:false,zIndexOffset:1000}).addTo(map);else{headingMarker.setLatLng(ll);headingMarker.setIcon(icon)}}
 function handleGPSPosition(pos){latestRawPosition=pos.coords;currentPosition=pos.coords;updateMapPosition(pos.coords);if(followUser)startSmoothFollow([pos.coords.latitude,pos.coords.longitude]);const a=Number(pos.coords.accuracy)||9999;setGPSStatus(`GPS ±${Math.round(a)} m`);updateGPSDisplay(pos.coords);updateNavigation()}
 function startGPS(){if(!navigator.geolocation){setGPSStatus("GPS unavailable");return}if(gpsWatchId!==null)navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=navigator.geolocation.watchPosition(handleGPSPosition,err=>{setGPSStatus(err.code===1?"Location permission denied":"Waiting for GPS…")},{enableHighAccuracy:true,maximumAge:0,timeout:10000})}
 startGPS();
-let followAnimationFrame=null,followTarget=null,followFrom=null,followStart=0;
+let followAnimationFrame=null,followTarget=null;
 function startSmoothFollow(ll){
   followTarget=ll;
-  if(!followUser)return;
-  if(followAnimationFrame)return;
-  followFrom=map.getCenter();
-  followStart=performance.now();
+  if(!followUser||followAnimationFrame)return;
+  let previous=performance.now();
   const animate=now=>{
     if(!followUser||!followTarget){followAnimationFrame=null;return}
-    const t=Math.min(1,(now-followStart)/650),e=t*(2-t);
-    const a=followFrom,b=L.latLng(followTarget);
-    const c=L.latLng(a.lat+(b.lat-a.lat)*e,a.lng+(b.lng-a.lng)*e);
-    map.setView(c,map.getZoom(),{animate:false});
-    if(t<1){followAnimationFrame=requestAnimationFrame(animate)}
-    else {followAnimationFrame=null;const latest=L.latLng(followTarget);if(Math.abs(c.lat-latest.lat)>0.000001||Math.abs(c.lng-latest.lng)>0.000001)startSmoothFollow([latest.lat,latest.lng])}
+    const dt=Math.min(50,now-previous);previous=now;
+    const c=map.getCenter(),target=L.latLng(followTarget);
+    // Exponential easing continuously chases the latest GPS fix, avoiding a new pan
+    // animation for every fix and preventing visible jumps when fixes arrive irregularly.
+    const alpha=1-Math.exp(-dt/420);
+    const next=L.latLng(c.lat+(target.lat-c.lat)*alpha,c.lng+(target.lng-c.lng)*alpha);
+    if(Math.abs(target.lat-c.lat)>0.00000002||Math.abs(target.lng-c.lng)>0.00000002)map.setView(next,map.getZoom(),{animate:false});
+    followAnimationFrame=requestAnimationFrame(animate);
   };
   followAnimationFrame=requestAnimationFrame(animate);
 }
-function centreOnUser(){if(!currentPosition){alert("Waiting for a GPS position.");return}followUser=true;const ll=[currentPosition.latitude,currentPosition.longitude];map.setView(ll,Math.max(map.getZoom(),17),{animate:true,duration:.5});followTarget=ll;followFrom=map.getCenter();followStart=performance.now();startSmoothFollow(ll);$('hint').textContent="Map following your GPS position. Drag the map to stop following."}
+function centreOnUser(){if(!currentPosition){alert("Waiting for a GPS position.");return}followUser=true;const ll=[currentPosition.latitude,currentPosition.longitude];followTarget=ll;map.setView(ll,Math.max(map.getZoom(),17),{animate:true,duration:.45});startSmoothFollow(ll);$('hint').textContent="Map smoothly following your GPS position. Drag the map to stop following."}
 $('locateBtn').addEventListener("click",e=>{e.preventDefault();e.stopPropagation();centreOnUser()});
 map.on('dragstart',()=>{if(followUser){followUser=false;followTarget=null;if(followAnimationFrame)cancelAnimationFrame(followAnimationFrame);followAnimationFrame=null;$('hint').textContent="Map follow stopped. Press the GPS locator to follow again."}});
 
